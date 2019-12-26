@@ -273,6 +273,7 @@ void analyzeScene(sourceT *s, int idx) {
         drawMarker(img, s->motion_sample_points[j], Scalar(0,255,0));
       }
     }
+    printf("scene%03d, frame %06.1f\n", idx, s->derez_cap->get(CAP_PROP_POS_FRAMES));
     showFrame(img, "motion", -1);
   }
 
@@ -292,7 +293,7 @@ void analyzeScene(sourceT *s, int idx) {
       showFrame(scene->key_frame, "analyze", -1);
 }
 
-void detectScenes(sourceT *s, float lookback_seconds=2.0, float factor=3.0) {
+void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=5.0) {
   Mat frame, p_frame, d_frame, mask;
   unsigned long i;
   unsigned long lookback_frames;
@@ -309,7 +310,7 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float factor=3.0) {
         scene.start_frame_num = j[i]["start_frame_num"];
         scene.duration= j[i]["duration"];
         s->scenes->push_back(scene);
-        analyzeScene(s, i);
+        //analyzeScene(s, i);
       }
       printf("Found %ld scenes in cache\n", i);
       return;
@@ -330,16 +331,22 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float factor=3.0) {
   for (i=1; i<s->frames; i++) {
     char  txt[256];
     double delta;
+    Mat f, pf;
 
     s->derez_cap->read(frame);
     cvtColor(frame, frame, COLOR_BGR2GRAY);
 
-    d_frame = frame - p_frame;
+    frame.convertTo(f, CV_32F);
+    p_frame.convertTo(pf, CV_32F);
+
+    d_frame = f - pf;
 
     delta = 0.0;
     for(int j = 0; j < d_frame.rows; j++) {
-      const unsigned char *Mj = d_frame.ptr<unsigned char>(j);
-      for(int k = 0; k < d_frame.cols; k++) delta += Mj[k];
+      const float *Mj = d_frame.ptr<float>(j);
+      for(int k = 0; k < d_frame.cols; k++) { 
+        delta += fabs(Mj[k]);
+      }
     }
     delta /= ((double) 128.0 * d_frame.rows * d_frame.cols);
 
@@ -348,17 +355,14 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float factor=3.0) {
       double score;
       score = (delta - rs.Mean()) / rs.StandardDeviation();
 
-      if (score >= factor) {
+      if (score >= z_threshold) {
 
         scene.start_frame_num = i;
 
         p_scene.duration = i - p_scene.start_frame_num;
 
-        // TODO: get key & avg frame
-        //
-
         s->scenes->push_back(p_scene);
-        analyzeScene(s, scene_count);
+        //analyzeScene(s, scene_count);
 
         p_scene = scene;
         
@@ -367,11 +371,11 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float factor=3.0) {
         printf ("%03d: Frame %05ld, Score = %f\n", scene_count, i, score);
         rs.Clear();
         line(mask, Point(mask.cols*i/s->frames, mask.rows), 
-            Point(mask.cols*i/s->frames, mask.rows * (1.0 - score/factor)), 
+            Point(mask.cols*i/s->frames, mask.rows * (1.0 - score/z_threshold)), 
             Scalar(0,0,255), 1, LINE_AA);
       } else {
         line(mask, Point(mask.cols*i/s->frames, mask.rows), 
-            Point(mask.cols*i/s->frames, mask.rows * (1.0 - score/factor)), 
+            Point(mask.cols*i/s->frames, mask.rows * (1.0 - score/z_threshold)), 
             Scalar(64,64,64), 1, LINE_AA);
       }
     } 
