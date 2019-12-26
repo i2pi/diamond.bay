@@ -187,7 +187,6 @@ void analyzeScene(sourceT *s, int idx) {
   s->derez_cap->set(CAP_PROP_POS_FRAMES, scene->start_frame_num + (scene->duration >> 1)); 
   s->derez_cap->read(scene->key_frame);
 
-  /*
   int K = 6;
 
   Mat ocv; 
@@ -212,28 +211,6 @@ void analyzeScene(sourceT *s, int idx) {
 
   Mat frame = scene->key_frame;
 
-  for (i=0; i<K; i++) {
-    Point A, B; 
-    int   x, X, y, Y;
-
-    x = frame.cols / 2;
-    X = frame.cols / 5;
-
-    y = 50;
-    Y = (frame.rows-100) / 3;
-
-    if (i % 2 == 0) {
-      A = Point(x,  y+Y*(i/2));
-      B = Point(x-X, y+Y*(1+i/2));
-    } else {
-      A = Point(x, y+Y*(i/2));
-      B = Point(x+X, y+Y*(1+i/2)); 
-    }
-
-    rectangle(frame, A, B, scene->palette.at<Vec3b>(i), -1);
-  }
-  */
-
   Mat gray, prevGray;
   s->derez_cap->set(CAP_PROP_POS_FRAMES, scene->start_frame_num);
   s->derez_cap->read(prevGray);
@@ -247,7 +224,7 @@ void analyzeScene(sourceT *s, int idx) {
   }
 
 
-  for (i=1; i < scene->duration; i++) {
+  for (i=1; i < scene->duration-3; i++) {
     TermCriteria termcrit(TermCriteria::COUNT|TermCriteria::EPS,20,0.03);
     vector<uchar> status;
     vector<float> err;
@@ -255,6 +232,8 @@ void analyzeScene(sourceT *s, int idx) {
     Mat img;
 
     s->derez_cap->read(img); 
+    cvtColor(img, img, COLOR_BGR2GRAY);
+    cvtColor(img, img, COLOR_GRAY2BGR);
     cvtColor(img, gray, COLOR_BGR2GRAY);
     calcOpticalFlowPyrLK(prevGray, gray, s->motion_sample_points, outPoints,
         status, err, winSize,
@@ -273,27 +252,48 @@ void analyzeScene(sourceT *s, int idx) {
         drawMarker(img, s->motion_sample_points[j], Scalar(0,255,0));
       }
     }
-    printf("scene%03d, frame %06.1f\n", idx, s->derez_cap->get(CAP_PROP_POS_FRAMES));
-    showFrame(img, "motion", -1);
+    if (i % 20 == 0) showFrame(img, "motion", -1);
   }
 
+  gray.copyTo(img);
+  img *= 0.25;
+  cvtColor(img, img, COLOR_GRAY2BGR);
+
+  for (i=0; i<K; i++) {
+    Point A, B; 
+    int   x, X, y, Y;
+
+    x = frame.cols / 2;
+    X = frame.cols / 5;
+
+    y = 50;
+    Y = (frame.rows-100) / 3;
+
+    if (i % 2 == 0) {
+      A = Point(x,  y+Y*(i/2));
+      B = Point(x-X, y+Y*(1+i/2));
+    } else {
+      A = Point(x, y+Y*(i/2));
+      B = Point(x+X, y+Y*(1+i/2)); 
+    }
+
+    rectangle(img, A, B, scene->palette.at<Vec3b>(i), -1);
+  }
 
   for (i=0; i<s->motion_sample_points.size(); i++) {
+    drawMarker(img, s->motion_sample_points[i], Scalar(128,128,128));
     if (sampleCounts.at(i) > 2) { 
       scene->motion.at(i) /= sampleCounts.at(i);
-      arrowedLine(scene->key_frame, s->motion_sample_points[i], 
-        s->motion_sample_points[i] + scene->motion.at(i) * 10, Scalar(0,255, 0), 2, LINE_AA, 0, 0.3);
-     } else {
-       drawMarker(scene->key_frame, s->motion_sample_points[i], Scalar(0,255,0));
-     }
+      arrowedLine(img, s->motion_sample_points[i], 
+          s->motion_sample_points[i] + scene->motion.at(i) * 15, Scalar(255,255,255), 2, LINE_AA, 0, 0.3);
+    }
   }
 
-
-  for (i=0; i<120; i++) 
-      showFrame(scene->key_frame, "analyze", -1);
+  for (i=0; i<80; i++) 
+      showFrame(img, "", -1);
 }
 
-void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=5.0) {
+void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0) {
   Mat frame, p_frame, d_frame, mask;
   unsigned long i;
   unsigned long lookback_frames;
@@ -310,7 +310,7 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=5.0)
         scene.start_frame_num = j[i]["start_frame_num"];
         scene.duration= j[i]["duration"];
         s->scenes->push_back(scene);
-        //analyzeScene(s, i);
+        analyzeScene(s, i);
       }
       printf("Found %ld scenes in cache\n", i);
       return;
@@ -362,10 +362,9 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=5.0)
         p_scene.duration = i - p_scene.start_frame_num;
 
         s->scenes->push_back(p_scene);
-        //analyzeScene(s, scene_count);
+        analyzeScene(s, scene_count);
 
         p_scene = scene;
-        
 
         scene_count++;
         printf ("%03d: Frame %05ld, Score = %f\n", scene_count, i, score);
@@ -383,7 +382,7 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=5.0)
     rs.Push(delta);
 
     snprintf (txt, 200, "clip: %d", scene_count);
-    if (i % 1 == 0) showFrame(frame, txt, -1, mask);
+    if (i % 30 == 0) showFrame(frame, txt, -1, mask);
 
     frame.copyTo(p_frame);
   }
@@ -454,14 +453,19 @@ void createDerez(sourceT *s, const char *derez_filename, float shrink=0.15) {
   video.release();
 }
 
-VideoWriter startOutput(sourceT *s) {
+VideoWriter startOutput(sourceT *s, int width=-1, int height=-1) {
   int codec = VideoWriter::fourcc('M', 'J', 'P', 'G');
   char outfile[128];
 
   snprintf(outfile, 120, "output.%ld.avi", time(NULL));
   printf("Writing output to %s\n", outfile);
 
-  VideoWriter video(outfile,codec, s->fps, Size(s->width,s->height));
+  if (width == -1) {
+    width = s->width;
+    height = s->height;
+  }
+
+  VideoWriter video(outfile,codec, s->fps, Size(width,height));
 
   namedWindow("diamond bay", 1);
 
@@ -498,7 +502,6 @@ sourceT *openSource (const char *filename) {
   printf ("Opened %s: %d x %d @ %4.2ffps - %ld frames %6.4fs\n",
       s->filename, s->width, s->height, s->fps, s->frames, s->frames / s->fps);
 
-  output_video = startOutput(s);
   openCache(s);
 
   s->derez_cap = new VideoCapture();
@@ -520,6 +523,7 @@ sourceT *openSource (const char *filename) {
     s->motion_sample_points.push_back(Point(x, y));
   }
 
+  output_video = startOutput(s, W, H);
   detectScenes(s);
 
   saveCache(s);
