@@ -12,6 +12,8 @@
 
 #include "json.hpp"
 
+#include "audio.h"
+
 using namespace cv;
 using namespace std;
 using json = nlohmann::json;
@@ -22,6 +24,7 @@ typedef struct {
   Mat             key_frame;
   vector<Point2f> motion;
   Mat             palette;
+  vector<float>   palette_weight;
 } sceneT;
 
 typedef struct {
@@ -42,6 +45,7 @@ typedef struct {
 
 cv::Ptr<cv::freetype::FreeType2> ft2 = cv::freetype::createFreeType2();
 VideoWriter   output_video;
+audioFileT    *music;
 
 void openCache(sourceT *s, const char *filename="cache.json") {
   ifstream infile;
@@ -193,6 +197,11 @@ void cacheScenes(sourceT *s) {
       pal.push_back(str);
     }
 
+    json pal_w = json::array();
+    for (int k=0; k<scene->palette_weight.size(); k++) {
+      pal_w.push_back(scene->palette_weight[k]);
+    }
+
     json mot = json::array();
     for (k=0; k<scene->motion.size(); k++) {
       Point2f p = scene->motion[k];
@@ -203,6 +212,7 @@ void cacheScenes(sourceT *s) {
       {"start_frame_num",scene->start_frame_num},
       {"duration", scene->duration},
       {"palette", pal},
+      {"palette_weight", pal_w},
       {"motion", mot}
     };
     (*s->cache)["scenes"].push_back(sj);
@@ -218,6 +228,7 @@ void analyzeScene(sourceT *s, int idx) {
   Mat img;
 
   printf ("ANALYZING SCENE %d\n", idx);
+
 
   scene = &s->scenes->at(idx);
   s->derez_cap->set(CAP_PROP_POS_FRAMES, scene->start_frame_num + (scene->duration >> 1)); 
@@ -244,6 +255,12 @@ void analyzeScene(sourceT *s, int idx) {
   // back to 2d, and uchar:
   scene->palette.convertTo(scene->palette, CV_8UC3);
   cvtColor(scene->palette, scene->palette, COLOR_Lab2BGR);
+
+  scene->palette_weight = vector<float>(K);
+  for (i=0; i<labels.rows; i++) {
+      scene->palette_weight[labels.at<int>(i)] ++;
+  } 
+  for (i=0; i<K; i++) scene->palette_weight[i] /= (float) labels.rows;
 
   Mat frame = scene->key_frame;
 
@@ -356,6 +373,12 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
           scene.palette.at<Vec3b>(k)[0] = c & 0x0000FF;
           scene.palette.at<Vec3b>(k)[1] = c & 0x00FF00;
           scene.palette.at<Vec3b>(k)[2] = c & 0xFF0000;
+        }
+
+        json pal_w = j[i]["palette_weight"];
+        for (int k=0; k<pal_w.size(); k++) {
+          float w = pal_w[k];
+          scene.palette_weight.push_back(w);
         }
 
         json mot = j[i]["motion"];
@@ -568,6 +591,8 @@ int main( int argc, char** argv )
     sourceT *source;
 
     ft2->loadFontData( "futura1.ttf", 0 );
+
+    music = read_ogg("05 sense_5days later.ogg");
 
     source = openSource("diamondbay.clips.mov");
 

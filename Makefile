@@ -1,8 +1,9 @@
-LIBS=-lopencv_videoio -lopencv_highgui -lopencv_core -lopencv_imgproc -lopencv_freetype -lopencv_video -lopencv_photo
+LIBS=-lopencv_videoio -lopencv_highgui -lopencv_core -lopencv_imgproc -lopencv_freetype -lopencv_video -lopencv_photo -lportaudio -lvorbis -lvorbisfile -logg
 CPPFLAGS=-Wall -O3 -std=c++11
+SRC=main.cpp audio.c
 
 main: main.cpp Makefile
-	g++ $(CPPFLAGS) main.cpp $(LIBS) -o main
+	g++ $(CPPFLAGS) $(SRC) $(LIBS) -o main
 
 clean:
 	rm -f main
