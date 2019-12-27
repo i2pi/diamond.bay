@@ -175,6 +175,42 @@ class RunningStat {
         double m_oldM, m_newM, m_oldS, m_newS;
 };
 
+void cacheScenes(sourceT *s) {
+  int i;
+
+  (*s->cache)["scenes"] = json::array();
+
+  for (i = 0; i<s->scenes->size(); i++) {
+    sceneT *scene = &s->scenes->at(i);
+    int k;
+    json pal = json::array();
+    for (k=0; k<scene->palette.rows; k++) {
+      Vec3b col = scene->palette.at<Vec3b>(k);
+      char str[256];
+      snprintf(str, 200, "0x%02x%02x%02x", 
+          col[2], col[1], col[0]);
+
+      pal.push_back(str);
+    }
+
+    json mot = json::array();
+    for (k=0; k<scene->motion.size(); k++) {
+      Point2f p = scene->motion[k];
+      mot.push_back({{"x", p.x}, {"y", p.y}});
+    }
+
+    json sj = { 
+      {"start_frame_num",scene->start_frame_num},
+      {"duration", scene->duration},
+      {"palette", pal},
+      {"motion", mot}
+    };
+    (*s->cache)["scenes"].push_back(sj);
+  }
+
+  saveCache(s);
+}
+
 void analyzeScene(sourceT *s, int idx) {
 
   sceneT *scene;
@@ -252,7 +288,7 @@ void analyzeScene(sourceT *s, int idx) {
         drawMarker(img, s->motion_sample_points[j], Scalar(0,255,0));
       }
     }
-    if (i % 20 == 0) showFrame(img, "motion", -1);
+//    if (i % 20 == 0) showFrame(img, "motion", -1);
   }
 
   gray.copyTo(img);
@@ -288,9 +324,10 @@ void analyzeScene(sourceT *s, int idx) {
           s->motion_sample_points[i] + scene->motion.at(i) * 15, Scalar(255,255,255), 2, LINE_AA, 0, 0.3);
     }
   }
-
+/*
   for (i=0; i<80; i++) 
       showFrame(img, "", -1);
+*/
 }
 
 void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0) {
@@ -309,8 +346,24 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
       for (i=0; i<j.size(); i++) {
         scene.start_frame_num = j[i]["start_frame_num"];
         scene.duration= j[i]["duration"];
+        s->derez_cap->set(CAP_PROP_POS_FRAMES, scene.start_frame_num + (scene.duration >> 1)); 
+        s->derez_cap->read(scene.key_frame);
+
+        json pal = j[i]["palette"];
+        scene.palette = Mat(pal.size(), 3, CV_8U);
+        for (int k=0; k<pal.size(); k++) {
+          unsigned long c = strtol(pal[k].get<std::string>().c_str(), NULL, 0);
+          scene.palette.at<Vec3b>(k)[0] = c & 0x0000FF;
+          scene.palette.at<Vec3b>(k)[1] = c & 0x00FF00;
+          scene.palette.at<Vec3b>(k)[2] = c & 0xFF0000;
+        }
+
+        json mot = j[i]["motion"];
+        for (int k=0; k<mot.size(); k++) {
+          scene.motion.push_back(Point(mot[k]["x"], mot[k]["y"]));
+        }
+
         s->scenes->push_back(scene);
-        analyzeScene(s, i);
       }
       printf("Found %ld scenes in cache\n", i);
       return;
@@ -389,29 +442,7 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
   p_scene.duration = i - p_scene.start_frame_num;
   s->scenes->push_back(p_scene);
 
-  (*s->cache)["scenes"] = json::array();
-
-  for (i = 0; i<scene_count; i++) {
-    sceneT *scene = &s->scenes->at(i);
-    int k;
-    json pal = json::array();
-    for (k=0; k<scene->palette.rows; k++) {
-      Vec3b col = scene->palette.at<Vec3b>(k);
-      char str[256];
-      snprintf(str, 200, "0x%02x%02x%02x", 
-          col[2], col[1], col[0]);
-
-      pal.push_back(str);
-    }
-
-    json sj = { 
-      {"start_frame_num",scene->start_frame_num},
-      {"duration", scene->duration},
-      {"palette", pal}
-    };
-    (*s->cache)["scenes"].push_back(sj);
-  }
-
+  cacheScenes(s);
 
   printf ("Done detecting scenes\n");
 
