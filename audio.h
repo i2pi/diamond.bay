@@ -10,11 +10,11 @@
 #include "vorbis/codec.h"
 #include "vorbis/vorbisfile.h"
 
-#define MAX_AUDIO_LENGTH	(44100*2*2*60)
+#define MAX_AUDIO_LENGTH	(44100*4*10*60)
 
 typedef struct {
 	int16_t *sample;
-	int		samples;	
+	unsigned long samples;	
 	int		idx;
 } audioFileT;
 

@@ -22,7 +22,7 @@ typedef struct {
   unsigned long   start_frame_num;
   unsigned long   duration;
   Mat             key_frame;
-  vector<Point2f> motion;
+  vector<Point2f> *motion;
   Mat             palette;
   vector<float>   palette_weight;
 } sceneT;
@@ -36,11 +36,10 @@ typedef struct {
   unsigned long frames;
   double        fps;
 
-  vector<Point2f> motion_sample_points;
+  vector<Point2f> *motion_sample_points;
   vector<sceneT> *scenes;
 
   VideoCapture  *derez_cap;
-
 } sourceT;
 
 cv::Ptr<cv::freetype::FreeType2> ft2 = cv::freetype::createFreeType2();
@@ -203,8 +202,8 @@ void cacheScenes(sourceT *s) {
     }
 
     json mot = json::array();
-    for (k=0; k<scene->motion.size(); k++) {
-      Point2f p = scene->motion[k];
+    for (k=0; k<scene->motion->size(); k++) {
+      Point2f p = (*scene->motion)[k];
       mot.push_back({{"x", p.x}, {"y", p.y}});
     }
 
@@ -271,8 +270,9 @@ void analyzeScene(sourceT *s, int idx) {
   Size winSize(50,50);
 
   vector<int> sampleCounts;
-  for (i=0; i<s->motion_sample_points.size(); i++) {
-    scene->motion.push_back(Point(0.0,0.0));
+  scene->motion = new vector<Point2f>();
+  for (i=0; i<s->motion_sample_points->size(); i++) {
+    scene->motion->push_back(Point(0.0,0.0));
     sampleCounts.push_back(0);
   }
 
@@ -288,21 +288,21 @@ void analyzeScene(sourceT *s, int idx) {
     cvtColor(img, img, COLOR_BGR2GRAY);
     cvtColor(img, img, COLOR_GRAY2BGR);
     cvtColor(img, gray, COLOR_BGR2GRAY);
-    calcOpticalFlowPyrLK(prevGray, gray, s->motion_sample_points, outPoints,
+    calcOpticalFlowPyrLK(prevGray, gray, *s->motion_sample_points, outPoints,
         status, err, winSize,
         3, termcrit, 0, 0.001); 
     gray.copyTo(prevGray);
 
-    for (int j=0; j<s->motion_sample_points.size(); j++) {
+    for (int j=0; j<s->motion_sample_points->size(); j++) {
       if (status[j]) { 
-        Point2f motion = outPoints[j] - s->motion_sample_points[j];
+        Point2f motion = outPoints[j] - (*s->motion_sample_points)[j];
         sampleCounts.at(j)++;
-        scene->motion.at(j) += motion;
+        scene->motion->at(j) += motion;
 
-        arrowedLine(img, s->motion_sample_points[j], 
-            s->motion_sample_points[j] + motion * 10, Scalar(0,255,0), 2, LINE_AA, 0, 0.3);
+        arrowedLine(img, (*s->motion_sample_points)[j], 
+            (*s->motion_sample_points)[j] + motion * 10, Scalar(0,255,0), 2, LINE_AA, 0, 0.3);
       } else {
-        drawMarker(img, s->motion_sample_points[j], Scalar(0,255,0));
+        drawMarker(img, (*s->motion_sample_points)[j], Scalar(0,255,0));
       }
     }
 //    if (i % 20 == 0) showFrame(img, "motion", -1);
@@ -333,12 +333,12 @@ void analyzeScene(sourceT *s, int idx) {
     rectangle(img, A, B, scene->palette.at<Vec3b>(i), -1);
   }
 
-  for (i=0; i<s->motion_sample_points.size(); i++) {
-    drawMarker(img, s->motion_sample_points[i], Scalar(128,128,128));
+  for (i=0; i<s->motion_sample_points->size(); i++) {
+    drawMarker(img, (*s->motion_sample_points)[i], Scalar(128,128,128));
     if (sampleCounts.at(i) > 2) { 
-      scene->motion.at(i) /= sampleCounts.at(i);
-      arrowedLine(img, s->motion_sample_points[i], 
-          s->motion_sample_points[i] + scene->motion.at(i) * 15, Scalar(255,255,255), 2, LINE_AA, 0, 0.3);
+      scene->motion->at(i) /= sampleCounts.at(i);
+      arrowedLine(img, (*s->motion_sample_points)[i], 
+          (*s->motion_sample_points)[i] + scene->motion->at(i) * 15, Scalar(255,255,255), 2, LINE_AA, 0, 0.3);
     }
   }
 /*
@@ -381,9 +381,10 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
           scene.palette_weight.push_back(w);
         }
 
+        scene.motion = new vector<Point2f>();
         json mot = j[i]["motion"];
         for (int k=0; k<mot.size(); k++) {
-          scene.motion.push_back(Point(mot[k]["x"], mot[k]["y"]));
+          scene.motion->push_back(Point(mot[k]["x"], mot[k]["y"]));
         }
 
         s->scenes->push_back(scene);
@@ -569,12 +570,14 @@ sourceT *openSource (const char *filename) {
     exit(-1);
   }
 
+  s->motion_sample_points = new vector<Point2f>();
+
   int N = 5;
   int W = s->derez_cap->get(CAP_PROP_FRAME_WIDTH);
   int H = s->derez_cap->get(CAP_PROP_FRAME_HEIGHT);
   for (int x = W/(N+1); x <= W-W/(N+1); x += W/(N+1))
     for (int y = H/(N+1); y <= H-H/(N+1); y += H/(N+1)) {
-    s->motion_sample_points.push_back(Point(x, y));
+    s->motion_sample_points->push_back(Point(x, y));
   }
 
   output_video = startOutput(s, W, H);
@@ -588,16 +591,18 @@ sourceT *openSource (const char *filename) {
 
 int main( int argc, char** argv )
 {
-    sourceT *source;
+  sourceT *source;
+  PaStream  *stream;
 
-    ft2->loadFontData( "futura1.ttf", 0 );
+  music = read_ogg("05 sense_5days later.ogg");
+  stream = init_portaudio(2, 44100, music);
 
-    music = read_ogg("05 sense_5days later.ogg");
+  ft2->loadFontData( "futura1.ttf", 0 );
 
-    source = openSource("diamondbay.clips.mov");
+  source = openSource("diamondbay.clips.mov");
 
-    source->raw_cap->release();
-    destroyAllWindows();
+  source->raw_cap->release();
+  destroyAllWindows();
 
-    return 0;
+  return 0;
 }
