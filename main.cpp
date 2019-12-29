@@ -18,6 +18,8 @@ using namespace cv;
 using namespace std;
 using json = nlohmann::json;
 
+#define PI 3.14159265354
+
 typedef struct {
   unsigned long   start_frame_num;
   unsigned long   duration;
@@ -44,7 +46,6 @@ typedef struct {
 
 cv::Ptr<cv::freetype::FreeType2> ft2 = cv::freetype::createFreeType2();
 VideoWriter   output_video;
-audioFileT    *music;
 
 void openCache(sourceT *s, const char *filename="cache.json") {
   ifstream infile;
@@ -588,20 +589,148 @@ sourceT *openSource (const char *filename) {
   return (s);
 }
 
+void bars (float x, int width=10, char c='*') {
+  int i;
+  int w = width * x;
+  if (w > width) w = width;
+
+  for (i=0; i<w; i++) {
+    printf ("%c", c);
+  }
+  for (; i<width; i++) {
+    printf(".");
+  }
+}
+
+void analyzeMusic(const char *ogg_name) {
+  PaStream  *stream;
+  audioFileT    *music;
+  int       p_idx;
+  double    sec;
+  int       frame, p_frame;
+  int       lookback = 8192;
+  int height = 800;
+
+  music = read_ogg(ogg_name);
+  stream = init_portaudio(2, 44100, music);
+
+  sec = 0.0;
+  p_frame = 0;
+  p_idx = -1;
+  frame = 0;
+  Mat screen = Mat(height, lookback/4, CV_8UC3);
+  screen *= 0;
+  while (1) {
+    if (music->idx != p_idx) {
+      bool new_frame = false;
+      int   idx = music->idx;
+
+      sec = idx / (2.0 * 44100.0);
+
+      p_idx = idx;
+
+      frame = sec * 29.97;
+
+      if (frame > p_frame) {
+        new_frame = true;
+
+        if (idx > lookback) {
+          vector<float> sample;
+          Mat           FFT;
+
+          for (int i=idx-lookback; i<idx; i++) {
+            int j = i - (idx - lookback);
+            float w = 0.5 * (1 - cos(2*PI*j/(float)lookback));
+            sample.push_back(w*music->sample[i] / 32768.0);
+          }
+
+          dft(sample, FFT);
+
+
+          blur(screen, screen, Size(50,5));
+          screen *= 0.95;
+
+          const float *f = FFT.ptr<float>(0);
+          float y[lookback];
+          float sy[lookback];
+          float ssy[lookback];
+          int i;
+
+          for (i=0; i<lookback/4; i++) {
+            y[i] = sqrt(f[i]*f[i] + f[lookback-i-1]*f[lookback-i-1]);
+            y[i] *= 0.1;
+            y[i] = log(y[i] + 1.0);
+          }
+
+          for (i=0; i<100; i++) y[i] = 0;
+
+          int smooth = 20;
+          float mean = 0;
+          float N = 0;
+          for (i=smooth; i<lookback/4-smooth; i++) {
+            float x, xx;
+            x = 0;
+            xx = 0;
+            if (i > smooth*2) for (int j=i-smooth*2; j<i-smooth; j++ ) {
+              xx += y[j] * 0.5;
+            }
+            for (int j=i-smooth; j<=i+smooth; j++) {
+              float w = 0.5 * (1 - cos(2*PI*(j-i+smooth)/(float)(2*smooth+1)));
+              x += w*y[j];
+              xx += w*y[j];
+            } 
+            for (int j=i+smooth+1; j<i+smooth*2; j++) {
+              xx += y[j] * 0.5;
+            }
+            sy[i] = x / (float) (2 * smooth + 1);
+            ssy[i] = xx / (float) (4 * smooth + 1);
+            mean += i * sy[i];
+            N += sy[i];
+          }
+          mean /= N;
+
+
+          for (i=0; i<lookback/4; i++) {
+            if (sy[i] > 1.15*ssy[i]) { 
+                line (screen, Point(i, 0), Point(i, height), Scalar(64,255,64), 1);
+            }
+            line(screen, Point(i,height), Point(i,height*(1.0-y[i])), Scalar(32,32,32), 1);
+            line(screen, Point(i,height), Point(i,height*(1.0-sy[i])), Scalar(65,255,255), 1);
+            line(screen, Point(i,height), Point(i,height*(1.0-ssy[i])), Scalar(64,64,64), 1);
+          }
+
+
+          line (screen, Point(mean, 0), Point(mean, height), Scalar(0,65,255), 10);
+
+          blur(screen, screen, Size(5,15));
+          showFrame(screen, "audio");
+        }
+
+
+        p_frame = frame;
+      }
+
+
+      printf ("%8.4fs ", sec);
+      printf ("%8d ", music->idx);
+      printf ("%c", new_frame ? 'F' : ' ');
+      printf ("%06d ", frame);
+      printf ("\n");
+    }
+  }
+}
+
 
 int main( int argc, char** argv )
 {
   sourceT *source;
-  PaStream  *stream;
-
-  music = read_ogg("05 sense_5days later.ogg");
-  stream = init_portaudio(2, 44100, music);
 
   ft2->loadFontData( "futura1.ttf", 0 );
-
   source = openSource("diamondbay.clips.mov");
+  analyzeMusic("05 sense_5days later.ogg");
 
-  source->raw_cap->release();
+
+ // source->raw_cap->release();
   destroyAllWindows();
 
   return 0;
