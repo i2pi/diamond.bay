@@ -581,7 +581,7 @@ sourceT *openSource (const char *filename) {
     s->motion_sample_points->push_back(Point(x, y));
   }
 
-  output_video = startOutput(s, W, H);
+  output_video = startOutput(s, 8192/4, 800);
   detectScenes(s);
 
   saveCache(s);
@@ -602,7 +602,7 @@ void bars (float x, int width=10, char c='*') {
   }
 }
 
-void analyzeMusic(const char *ogg_name) {
+void analyzeMusic(const char *ogg_name, bool try_real_time = true) {
   PaStream  *stream;
   audioFileT    *music;
   int       p_idx;
@@ -610,6 +610,8 @@ void analyzeMusic(const char *ogg_name) {
   int       frame, p_frame;
   int       lookback = 8192;
   int height = 800;
+  int       master_idx;
+  float mean = 0;
 
   music = read_ogg(ogg_name);
   stream = init_portaudio(2, 44100, music);
@@ -619,11 +621,18 @@ void analyzeMusic(const char *ogg_name) {
   p_idx = -1;
   frame = 0;
   Mat screen = Mat(height, lookback/4, CV_8UC3);
+  Mat screen_blur = Mat(height, lookback/4, CV_8UC3);
   screen *= 0;
-  while (1) {
-    if (music->idx != p_idx) {
+  for (master_idx = 0; master_idx < music->samples; master_idx++) {
+    int idx;
+    if (!try_real_time) {
+      idx = master_idx;
+    } else {
+      idx = music->idx;
+      master_idx = 0;
+    }
+    if (idx != p_idx) {
       bool new_frame = false;
-      int   idx = music->idx;
 
       sec = idx / (2.0 * 44100.0);
 
@@ -643,12 +652,13 @@ void analyzeMusic(const char *ogg_name) {
             float w = 0.5 * (1 - cos(2*PI*j/(float)lookback));
             sample.push_back(w*music->sample[i] / 32768.0);
           }
-
           dft(sample, FFT);
 
-
           blur(screen, screen, Size(50,5));
-          screen *= 0.95;
+          screen *= 0.60;
+          Mat rot_mat = getRotationMatrix2D( Point(mean, 400), 5.0*(mean-lookback/6)/200.0, 1.05);
+          warpAffine(screen, screen_blur, rot_mat, screen.size() );
+          screen = screen + 0.35*screen_blur;
 
           const float *f = FFT.ptr<float>(0);
           float y[lookback];
@@ -665,7 +675,6 @@ void analyzeMusic(const char *ogg_name) {
           for (i=0; i<100; i++) y[i] = 0;
 
           int smooth = 20;
-          float mean = 0;
           float N = 0;
           for (i=smooth; i<lookback/4-smooth; i++) {
             float x, xx;
@@ -694,15 +703,15 @@ void analyzeMusic(const char *ogg_name) {
             if (sy[i] > 1.15*ssy[i]) { 
                 line (screen, Point(i, 0), Point(i, height), Scalar(64,255,64), 1);
             }
-            line(screen, Point(i,height), Point(i,height*(1.0-y[i])), Scalar(32,32,32), 1);
+            line(screen, Point(i,height), Point(i,height*(1.0-y[i])), Scalar(0,0,0), 1);
             line(screen, Point(i,height), Point(i,height*(1.0-sy[i])), Scalar(65,255,255), 1);
-            line(screen, Point(i,height), Point(i,height*(1.0-ssy[i])), Scalar(64,64,64), 1);
+            line(screen, Point(i,height), Point(i,height*(1.0-ssy[i])), Scalar(16,16,16), 1);
           }
 
 
           line (screen, Point(mean, 0), Point(mean, height), Scalar(0,65,255), 10);
 
-          blur(screen, screen, Size(5,15));
+          blur(screen, screen, Size(15,65));
           showFrame(screen, "audio");
         }
 
@@ -727,7 +736,7 @@ int main( int argc, char** argv )
 
   ft2->loadFontData( "futura1.ttf", 0 );
   source = openSource("diamondbay.clips.mov");
-  analyzeMusic("05 sense_5days later.ogg");
+  analyzeMusic("05 sense_5days later.ogg", false);
 
 
  // source->raw_cap->release();
