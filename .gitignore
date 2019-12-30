@@ -1,0 +1,8 @@
+*.avi
+*.mov
+*.mp3
+*.ogg
+*.raw
+.DS_Store
+*.dSYM
+diamond.bay
