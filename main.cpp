@@ -602,146 +602,7 @@ void bars (float x, int width=10, char c='*') {
   }
 }
 
-void analyzeMusic(const char *ogg_name, bool try_real_time = true) {
-  PaStream  *stream;
-  audioFileT    *music;
-  int       p_idx;
-  double    sec;
-  int       frame, p_frame;
-  int       lookback = 8192;
-  int height = 800;
-  int       master_idx;
-  float mean = 0;
-  float green_mean = 0;
-
-  music = read_ogg(ogg_name);
-  stream = init_portaudio(2, 44100, music);
-
-  sec = 0.0;
-  p_frame = 0;
-  p_idx = -1;
-  frame = 0;
-  Mat screen = Mat(height, lookback/4, CV_8UC3);
-  Mat screen_blur = Mat(height, lookback/4, CV_8UC3);
-  screen *= 0;
-  for (master_idx = 0; master_idx < music->samples; master_idx++) {
-    int idx;
-    if (!try_real_time) {
-      idx = master_idx;
-    } else {
-      idx = music->idx;
-      master_idx = 0;
-    }
-    if (idx != p_idx) {
-      bool new_frame = false;
-
-      sec = idx / (2.0 * 44100.0);
-
-      p_idx = idx;
-
-      frame = sec * 29.97;
-
-      if (frame > p_frame) {
-        new_frame = true;
-
-        if (idx > lookback) {
-          vector<float> sample;
-          Mat           FFT;
-
-          for (int i=idx-lookback; i<idx; i++) {
-            int j = i - (idx - lookback);
-            float w = 0.5 * (1 - cos(2*PI*j/(float)lookback));
-            sample.push_back(w*music->sample[i] / 32768.0);
-          }
-          dft(sample, FFT);
-
-          blur(screen, screen, Size(50,5));
-          screen *= 0.60;
-          Mat rot_mat = getRotationMatrix2D( Point(mean, 400), 15.0*(mean-lookback/10)/200.0, 1.05);
-          warpAffine(screen, screen_blur, rot_mat, screen.size() );
-          screen = screen + 0.35*screen_blur;
-
-          const float *f = FFT.ptr<float>(0);
-          float y[lookback];
-          float sy[lookback];
-          float ssy[lookback];
-          int i;
-
-          for (i=0; i<lookback/4; i++) {
-            y[i] = sqrt(f[i]*f[i] + f[lookback-i-1]*f[lookback-i-1]);
-            y[i] *= 0.1;
-            y[i] = log(y[i] + 1.0);
-          }
-
-          for (i=0; i<100; i++) y[i] = 0;
-
-          int smooth = 20;
-          float N = 0;
-          for (i=smooth*2; i<lookback/4-smooth*2; i++) {
-            float x, xx;
-            x = 0;
-            xx = 0;
-            if (i > smooth*2) for (int j=i-smooth*2; j<i-smooth; j++ ) {
-              xx += y[j] * 0.5;
-            }
-            for (int j=i-smooth; j<=i+smooth; j++) {
-              float w = 0.5 * (1 - cos(2*PI*(j-i+smooth)/(float)(2*smooth+1)));
-              x += w*y[j];
-              xx += w*y[j];
-            } 
-            for (int j=i+smooth+1; j<i+smooth*2; j++) {
-              xx += y[j] * 0.5;
-            }
-            sy[i] = x / (float) (2 * smooth + 1);
-            ssy[i] = xx / (float) (4 * smooth + 1);
-            mean += i * sy[i];
-            N += sy[i];
-          }
-          mean /= N;
-
-
-          N = 0;
-          green_mean = 0;
-          for (i=0; i<lookback/4; i++) {
-            if (sy[i] > 1.15*ssy[i]) { 
-                line (screen, Point(i, 0), Point(i, height), Scalar(64,255,64), 1);
-                green_mean += i * (sy[i] - ssy[i]);
-                N += (sy[i] - ssy[i]);
-            }
-            line(screen, Point(i,height), Point(i,height*(1.0-y[i])), Scalar(0,0,0), 1);
-            line(screen, Point(i,height), Point(i,height*(1.0-sy[i])), Scalar(65,255,255), 1);
-            line(screen, Point(i,height), Point(i,height*(1.0-ssy[i])), Scalar(16,16,16), 1);
-          }
-
-          green_mean /= N;
-          printf ("%f\n", N);
-
-          line (screen, Point(mean, 0), Point(mean, height), Scalar(0,65,255), 10);
-          line (screen, Point(green_mean, 0), Point(green_mean, height), Scalar(255,0,0), 1+10*N);
-
-          blur(screen, screen, Size(15,65));
-
-          line (screen, Point(mean, 0), Point(mean, height), Scalar(0,65,255), 10);
-          line (screen, Point(green_mean, 0), Point(green_mean, height), Scalar(255,255,0), 1+10*N);
-
-          showFrame(screen, "audio");
-        }
-
-
-        p_frame = frame;
-      }
-
-
-      printf ("%8.4fs ", sec);
-      printf ("%8d ", music->idx);
-      printf ("%c", new_frame ? 'F' : ' ');
-      printf ("%06d ", frame);
-      printf ("\n");
-    }
-  }
-}
-
-int kernText(Mat screen, const char *text, float *kern, int height, Point loc, Scalar col) {
+int kernText(Mat *screen, const char *text, float *kern, int height, Point loc=Point(0,0), Scalar col=Scalar(255,255,255)) {
   int baseline;
   Size sz;
   int i;
@@ -752,7 +613,7 @@ int kernText(Mat screen, const char *text, float *kern, int height, Point loc, S
   for (i=0; i<strlen(text); i++) {
     char str[10];
     snprintf (str, 4, "%c", text[i]);
-    ft2->putText(screen, str, Point(x, loc.y), height, col, -1, LINE_AA, false);
+    if (screen != NULL) ft2->putText(*screen, str, Point(x, loc.y), height, col, -1, LINE_AA, false);
     sz = ft2->getTextSize(str, height, -1, &baseline);
     x += sz.width * kern[i];
   }
@@ -765,169 +626,209 @@ void title(Mat screen, sourceT *s) {
   int i;
 
   float kern[] = {0.95, 1.4, 1.0, 0.92, 0.95, 1.0, 1.0};
+  float letterHeight = 500 * screen.rows / (float) s->height;
+  float x, y;
+
   for (i=0; i<8; i++) kern[i] *= 1.1;
-  kernText(screen, 
-      "DIAMOND", kern,
-      500, Point(650,100), Scalar(255,255,255));
-  showFrame(screen);
+  x = screen.cols / 2;
+  x -= kernText(NULL, "DIAMOND", kern, letterHeight)/2.0;
+  y = 0;
+  kernText(&screen, "DIAMOND", kern, letterHeight, Point(x,y));
 
   kern[0] = 1.0;
   kern[1] = 0.75;
   for (i=0; i<8; i++) kern[i] *= 1.1;
-  kernText(screen, 
-      "BAY", kern,
-      500, Point(1375,1400), Scalar(255,255,255));
+  x = screen.cols / 2;
+  x -= kernText(NULL, "BAY", kern, letterHeight)/2.0;
+  y = screen.rows - letterHeight * 1.3;
+  kernText(&screen, "BAY", kern, letterHeight, Point(x,y));
 }
 
-int analyse_audio_frame(Mat screen, audioFileT *music, int idx) {
-  double sec;
-  int frame;
-  static int p_frame = -1;
-
+void analyse_audio_frame(Mat screen, audioFileT *music, int idx, float *mean, float *peaks) {
   int       lookback = 8192;
-  int height = 800;
-  float mean = 0;
-  float green_mean = 0;
-
-  bool new_frame = false;
-
-  sec = idx / (2.0 * 44100.0);
-
-  frame = sec * 29.97;
-
-  if (frame > p_frame) {
-    new_frame = true;
-
-    if (idx > lookback) {
-      vector<float> sample;
-      Mat           FFT;
-
-      for (int i=idx-lookback; i<idx; i++) {
-        int j = i - (idx - lookback);
-        float w = 0.5 * (1 - cos(2*PI*j/(float)lookback));
-        sample.push_back(w*music->sample[i] / 32768.0);
-      }
-      dft(sample, FFT);
-
-      Mat screen_blur = Mat(height, lookback/4, CV_8UC3);
-      blur(screen, screen, Size(50,5));
-      screen *= 0.60;
-      Mat rot_mat = getRotationMatrix2D( Point(mean, 400), 15.0*(mean-lookback/10)/200.0, 1.05);
-      warpAffine(screen, screen_blur, rot_mat, screen.size() );
-      screen = screen + 0.35*screen_blur;
-
-      const float *f = FFT.ptr<float>(0);
-      float y[lookback];
-      float sy[lookback];
-      float ssy[lookback];
-      int i;
-
-      for (i=0; i<lookback/4; i++) {
-        y[i] = sqrt(f[i]*f[i] + f[lookback-i-1]*f[lookback-i-1]);
-        y[i] *= 0.1;
-        y[i] = log(y[i] + 1.0);
-      }
-
-      for (i=0; i<100; i++) y[i] = 0;
-
-      int smooth = 20;
-      float N = 0;
-      for (i=smooth*2; i<lookback/4-smooth*2; i++) {
-        float x, xx;
-        x = 0;
-        xx = 0;
-        if (i > smooth*2) for (int j=i-smooth*2; j<i-smooth; j++ ) {
-          xx += y[j] * 0.5;
-        }
-        for (int j=i-smooth; j<=i+smooth; j++) {
-          float w = 0.5 * (1 - cos(2*PI*(j-i+smooth)/(float)(2*smooth+1)));
-          x += w*y[j];
-          xx += w*y[j];
-        } 
-        for (int j=i+smooth+1; j<i+smooth*2; j++) {
-          xx += y[j] * 0.5;
-        }
-        sy[i] = x / (float) (2 * smooth + 1);
-        ssy[i] = xx / (float) (4 * smooth + 1);
-        mean += i * sy[i];
-        N += sy[i];
-      }
-      mean /= N;
+  int height = screen.rows;
 
 
-      N = 0;
-      green_mean = 0;
-      for (i=0; i<lookback/4; i++) {
-        if (sy[i] > 1.15*ssy[i]) { 
-          line (screen, Point(i, 0), Point(i, height), Scalar(64,255,64), 1);
-          green_mean += i * (sy[i] - ssy[i]);
-          N += (sy[i] - ssy[i]);
-        }
-        line(screen, Point(i,height), Point(i,height*(1.0-y[i])), Scalar(0,0,0), 1);
-        line(screen, Point(i,height), Point(i,height*(1.0-sy[i])), Scalar(65,255,255), 1);
-        line(screen, Point(i,height), Point(i,height*(1.0-ssy[i])), Scalar(16,16,16), 1);
-      }
-
-      green_mean /= N;
-
-      printf ("%f\n", N);
-
-      line (screen, Point(mean, 0), Point(mean, height), Scalar(0,65,255), 10);
-      line (screen, Point(green_mean, 0), Point(green_mean, height), Scalar(255,0,0), 2+10*N);
-
-      blur(screen, screen, Size(15,65));
-
-      line (screen, Point(mean, 0), Point(mean, height), Scalar(0,65,255), 10);
-      line (screen, Point(green_mean, 0), Point(green_mean, height), Scalar(255,255,0), 2+10*N);
-
-    }
-
-
-    p_frame = frame;
+  if (idx < lookback) {
+    return;
   }
 
+  vector<float> sample;
+  Mat           FFT;
 
-  printf ("%8.4fs ", sec);
-  printf ("%8d ", music->idx);
-  printf ("%c", new_frame ? 'F' : ' ');
-  printf ("%06d ", frame);
-  printf ("\n");
+  for (int i=idx-lookback; i<idx; i++) {
+    int j = i - (idx - lookback);
+    float w = 0.5 * (1 - cos(2*PI*j/(float)lookback));
+    sample.push_back(w*music->sample[i] / 32768.0);
+  }
+  dft(sample, FFT);
 
-  return (frame);
+ const float *f = FFT.ptr<float>(0);
+  float y[lookback];
+  float sy[lookback];
+  float ssy[lookback];
+  int i;
 
+  for (i=0; i<lookback/4; i++) {
+    y[i] = sqrt(f[i]*f[i] + f[lookback-i-1]*f[lookback-i-1]);
+    y[i] *= 0.1;
+    y[i] = log(y[i] + 1.0);
+  }
+
+  for (i=0; i<100; i++) y[i] = 0;
+
+  int smooth = 20;
+  float N = 0;
+  *mean = 0;
+  for (i=smooth*2; i<lookback/4-smooth*2; i++) {
+    float x, xx;
+    x = 0;
+    xx = 0;
+    if (i > smooth*2) for (int j=i-smooth*2; j<i-smooth; j++ ) {
+      xx += y[j] * 0.5;
+    }
+    for (int j=i-smooth; j<=i+smooth; j++) {
+      float w = 0.5 * (1 - cos(2*PI*(j-i+smooth)/(float)(2*smooth+1)));
+      x += w*y[j];
+      xx += w*y[j];
+    } 
+    for (int j=i+smooth+1; j<i+smooth*2; j++) {
+      xx += y[j] * 0.5;
+    }
+    sy[i] = x / (float) (2 * smooth + 1);
+    ssy[i] = xx / (float) (4 * smooth + 1);
+    *mean += i * sy[i];
+    N += sy[i];
+
+    if (sy[i] > 1.15*ssy[i]) {
+      *peaks += 1.0;
+    }
+  }
+  *mean /= N;
+  *peaks /= lookback/4.0;
+/*
+  Mat screen_blur = Mat(screen.rows, screen.cols, CV_8UC3);
+
+  blur(screen, screen, Size(5,5));
+  screen *= 0.40;
+
+  Mat rot_mat = getRotationMatrix2D( Point(*mean, screen.rows/2), 5.0*(*mean-lookback/10)/200.0, 2.15);
+  warpAffine(screen, screen_blur, rot_mat, screen.size() );
+  screen = screen + 0.15*screen_blur;
+
+  for (i=0; i<lookback/4; i++) {
+    if (sy[i] > 1.15*ssy[i]) { 
+      line (screen, Point(i, 0), Point(i, height), Scalar(64,255,64), 1);
+    }
+    int x = (i*screen.cols/ (lookback/4));
+    line(screen, Point(x,height), Point(x,height*(1.0-y[i])), Scalar(0,0,0), 1);
+    line(screen, Point(x,height), Point(x,height*(1.0-sy[i])), Scalar(65,255,255), 1);
+    line(screen, Point(x,height), Point(x,height*(1.0-ssy[i])), Scalar(16,16,16), 1);
+  }
+
+  int mean_x = (*mean*screen.cols) / (lookback/4);
+
+  line (screen, Point(mean_x, 0), Point(mean_x, height), Scalar(0,65,255), 10);
+  blur(screen, screen, Size(5,5));
+  line (screen, Point(mean_x, 0), Point(mean_x, height), Scalar(0,65,255), 10);
+*/
+
+  *mean /= lookback/4.0;
 }
 
-void play(const char *mov_name, const char *ogg_name, bool try_real_time = true) {
+void play(const char *mov_name, const char *ogg_name, bool try_real_time = true, bool derez=true)  {
   PaStream  *stream;
   audioFileT    *music;
   int       p_idx;
-  int       frame;
+  int       frame, p_frame;
   int       master_idx;
   sourceT   *source;
+  float sec, p_sec;
 
   source = openSource(mov_name);
 
   music = read_ogg(ogg_name);
   stream = init_portaudio(2, 44100, music);
 
+  int width, height;
+
+  if (derez) {
+    width = source->derez_cap->get(CAP_PROP_FRAME_WIDTH);
+    height = source->derez_cap->get(CAP_PROP_FRAME_HEIGHT);
+  } else {
+    width = source->width;
+    height = source->height;
+  }
+
+
+  Mat screen = Mat(height, width, CV_8UC3);
+  Mat mask = Mat(height, width, CV_8UC3);
+  Mat anal = Mat(height, width, CV_8UC3);
+
+  p_sec = 0;
   p_idx = -1;
+  p_frame = -1;
 
-  Mat screen = Mat(source->height, source->width, CV_8UC3);
-
-  for (master_idx = 0; master_idx < music->samples; master_idx+=1000) {
+  for (master_idx = 0; master_idx < music->samples; master_idx+=10) {
     int idx;
+
     if (!try_real_time) {
       idx = master_idx;
     } else {
       idx = music->idx;
       master_idx = 0;
     }
-    if (idx != p_idx) {
-      frame = analyse_audio_frame(screen, music, idx) ;
-      p_idx = idx;
+
+    sec = idx / (2.0 * 44100.0);
+    frame = sec * 29.97;
+
+    if (frame != p_frame) {
+
+      Mat footage;
+
+      if (derez) {
+        source->derez_cap->set(CAP_PROP_POS_FRAMES, frame);
+        source->derez_cap->read(footage); 
+      } else {
+        source->raw_cap->set(CAP_PROP_POS_FRAMES, frame);
+        source->raw_cap->read(footage); 
+      }
+
+      footage.copyTo(screen);
+
+      float audio_mean, audio_peaks;
+      analyse_audio_frame(anal, music, idx, &audio_mean, &audio_peaks) ;
+/*
+      mask *= 0;
+      title(mask, source);
+
+
+//      multiply(screen, 0.5 + anal/512.0, screen);
+
+      multiply(screen, mask/256.0, screen);
+      blur(screen, screen, Size(2,2));
+      screen += mask * 0.5;
+      */
+
+
+      showFrame(screen);
+
+
+      printf ("%8.4fs ", sec);
+      printf ("%6.2ffps ", 1.0 / (sec - p_sec));
+      printf ("%8d ", music->idx);
+      printf ("%06d ", frame);
+      printf ("   %6.4f ", audio_mean);
+      bars((audio_mean-0.2) * 2.0);
+      printf (" %6.4f ", audio_peaks);
+      bars(audio_peaks * 10.0);
+      printf ("\n");
+      p_sec = sec;
+      p_frame = frame;
     }
-    title(screen, source);
-    showFrame(screen, "play");
+
+
+
   }
 }
 
@@ -940,8 +841,6 @@ int main( int argc, char** argv )
   ft2->loadFontData( "futura1.ttf", 0 );
 
   play("diamondbay.clips.mov", "05 sense_5days later.ogg", true);
-
-
 
   return 0;
 }
