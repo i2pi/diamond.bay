@@ -736,6 +736,71 @@ void analyse_audio_frame(Mat screen, audioFileT *music, int idx, float *mean, fl
   *mean /= lookback/4.0;
 }
 
+bool add_beat_to_rhythm(vector<int> *beat_idx, int idx, float threshold = 0.02) {
+  if (beat_idx->size() < 2) {
+    printf ("%lu\n", beat_idx->size());
+    beat_idx->push_back(idx);
+    return (true);
+  } 
+
+  float mean_delta = 0;
+  for (int i=1; i<beat_idx->size(); i++) {
+    mean_delta += beat_idx->at(i) - beat_idx->at(i-1);
+  }
+  mean_delta /= (float)(beat_idx->size() - 1.0);
+
+  float delta = idx - beat_idx->back();
+
+  float err = (delta - mean_delta) / mean_delta;
+
+  if (delta > mean_delta*0.25) {
+    float IPS = 44100 * 2.0;
+    int   multiple;
+    err = fabs(err);
+    multiple = (int)round(err);
+    err = fabs(err - multiple);
+
+    printf ("%4lu, %7.4f, %6.4f, %6.4f, %d, %+5.4f %5.4f", 
+        beat_idx->size(), 
+        idx / IPS, 
+        delta / IPS, 
+        mean_delta / IPS, 
+        multiple,
+        (delta - mean_delta) / mean_delta,
+        err);
+
+    if (err < threshold) {
+      beat_idx->push_back(idx - multiple*mean_delta);
+      printf (" +++ \n");
+      return (true);
+    }
+  }
+
+  printf ("\n");
+
+
+  return (false);
+}
+
+bool is_beat_now(vector<int> *beat_idx, int idx) {
+  if (beat_idx->size() < 2) return (false);
+
+  float mean_delta = 0;
+  for (int i=1; i<beat_idx->size(); i++) {
+    mean_delta += beat_idx->at(i) - beat_idx->at(i-1);
+  }
+  mean_delta /= (float)(beat_idx->size() - 1.0);
+
+  float delta = idx - beat_idx->back();
+
+  float err = (delta - mean_delta) / mean_delta;
+  err = fabs(err);
+
+  if (err < 0.002) return(true);
+
+  return (false);
+}
+
 void play(const char *mov_name, const char *ogg_name, bool try_real_time = true, bool derez=true)  {
   PaStream  *stream;
   audioFileT    *music;
@@ -744,6 +809,10 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
   int       master_idx;
   sourceT   *source;
   float sec, p_sec;
+  float     audio_mean, audio_peaks;
+  float     p_audio_peaks = 0;
+  vector<int> beat_idx;
+  bool      is_beat = false;
 
   source = openSource(mov_name);
 
@@ -796,9 +865,14 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
 
       footage.copyTo(screen);
 
-      float audio_mean, audio_peaks;
       analyse_audio_frame(anal, music, idx, &audio_mean, &audio_peaks) ;
-/*
+
+      if (audio_peaks > 1.35* p_audio_peaks) {
+        is_beat = add_beat_to_rhythm(&beat_idx, idx) ;
+      }
+      p_audio_peaks = audio_peaks;
+
+    /*
       mask *= 0;
       title(mask, source);
 
@@ -811,9 +885,9 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
       */
 
 
-      showFrame(screen);
+//      showFrame(screen);
 
-
+/*
       printf ("%8.4fs ", sec);
       printf ("%6.2ffps ", 1.0 / (sec - p_sec));
       printf ("%8d ", music->idx);
@@ -822,12 +896,13 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
       bars((audio_mean-0.2) * 2.0);
       printf (" %6.4f ", audio_peaks);
       bars(audio_peaks * 10.0);
+      printf("%c ", beat ? '+' : ' ');
       printf ("\n");
+*/
+
       p_sec = sec;
       p_frame = frame;
     }
-
-
 
   }
 }
