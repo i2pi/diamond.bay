@@ -782,25 +782,6 @@ bool add_beat_to_rhythm(vector<int> *beat_idx, int idx, float threshold = 0.02) 
   return (false);
 }
 
-bool is_beat_now(vector<int> *beat_idx, int idx) {
-  if (beat_idx->size() < 2) return (false);
-
-  float mean_delta = 0;
-  for (int i=1; i<beat_idx->size(); i++) {
-    mean_delta += beat_idx->at(i) - beat_idx->at(i-1);
-  }
-  mean_delta /= (float)(beat_idx->size() - 1.0);
-
-  float delta = idx - beat_idx->back();
-
-  float err = (delta - mean_delta) / mean_delta;
-  err = fabs(err);
-
-  if (err < 0.002) return(true);
-
-  return (false);
-}
-
 void play(const char *mov_name, const char *ogg_name, bool try_real_time = true, bool derez=true)  {
   PaStream  *stream;
   audioFileT    *music;
@@ -813,6 +794,8 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
   float     p_audio_peaks = 0;
   vector<int> beat_idx;
   bool      is_beat = false;
+  sceneT    *current_scene;
+  int       scene_start_frame = 0;
 
   source = openSource(mov_name);
 
@@ -838,8 +821,13 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
   p_idx = -1;
   p_frame = -1;
 
+  current_scene = &source->scenes->at(0);
+  scene_start_frame = 0;
+
   for (master_idx = 0; master_idx < music->samples; master_idx+=10) {
     int idx;
+    
+
 
     if (!try_real_time) {
       idx = master_idx;
@@ -853,10 +841,26 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
 
     if (frame != p_frame) {
 
+      analyse_audio_frame(anal, music, idx, &audio_mean, &audio_peaks) ;
+
+      is_beat = false;
+
+      if (audio_peaks > 1.35* p_audio_peaks) {
+        is_beat = add_beat_to_rhythm(&beat_idx, idx) ;
+      }
+      p_audio_peaks = audio_peaks;
+
+      if (is_beat) {
+        int n_scenes = source->scenes->size();
+        current_scene = &source->scenes->at(random() * n_scenes / RAND_MAX);
+        scene_start_frame = frame;
+      }
+
       Mat footage;
 
       if (derez) {
-        source->derez_cap->set(CAP_PROP_POS_FRAMES, frame);
+        int frame_num = current_scene->start_frame_num + (frame - scene_start_frame);
+        source->derez_cap->set(CAP_PROP_POS_FRAMES, frame_num);
         source->derez_cap->read(footage); 
       } else {
         source->raw_cap->set(CAP_PROP_POS_FRAMES, frame);
@@ -865,12 +869,6 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
 
       footage.copyTo(screen);
 
-      analyse_audio_frame(anal, music, idx, &audio_mean, &audio_peaks) ;
-
-      if (audio_peaks > 1.35* p_audio_peaks) {
-        is_beat = add_beat_to_rhythm(&beat_idx, idx) ;
-      }
-      p_audio_peaks = audio_peaks;
 
     /*
       mask *= 0;
@@ -885,7 +883,7 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
       */
 
 
-//      showFrame(screen);
+      showFrame(screen);
 
 /*
       printf ("%8.4fs ", sec);
