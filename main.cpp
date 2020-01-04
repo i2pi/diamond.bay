@@ -22,6 +22,7 @@ using json = nlohmann::json;
 
 typedef struct {
   unsigned long   start_frame_num;
+  unsigned long   current_frame_num;
   unsigned long   duration;
   Mat             key_frame;
   vector<Point2f> *motion;
@@ -363,6 +364,7 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
       json j = (*s->cache)["scenes"];
       for (i=0; i<j.size(); i++) {
         scene.start_frame_num = j[i]["start_frame_num"];
+        scene.current_frame_num = scene.start_frame_num;
         scene.duration= j[i]["duration"];
         s->derez_cap->set(CAP_PROP_POS_FRAMES, scene.start_frame_num + (scene.duration >> 1)); 
         s->derez_cap->read(scene.key_frame);
@@ -581,7 +583,7 @@ sourceT *openSource (const char *filename) {
     s->motion_sample_points->push_back(Point(x, y));
   }
 
-  output_video = startOutput(s, 8192/4, 800);
+  output_video = startOutput(s, W, H);
   detectScenes(s);
 
   saveCache(s);
@@ -646,7 +648,7 @@ void title(Mat screen, sourceT *s) {
 
 void analyse_audio_frame(Mat screen, audioFileT *music, int idx, float *mean, float *peaks) {
   int       lookback = 8192;
-  int height = screen.rows;
+//  int height = screen.rows;
 
 
   if (idx < lookback) {
@@ -736,9 +738,8 @@ void analyse_audio_frame(Mat screen, audioFileT *music, int idx, float *mean, fl
   *mean /= lookback/4.0;
 }
 
-bool add_beat_to_rhythm(vector<int> *beat_idx, int idx, float threshold = 0.02) {
+bool add_beat_to_rhythm(vector<int> *beat_idx, int idx, int *beat_idx_delta, float threshold = 0.02) {
   if (beat_idx->size() < 2) {
-    printf ("%lu\n", beat_idx->size());
     beat_idx->push_back(idx);
     return (true);
   } 
@@ -749,17 +750,19 @@ bool add_beat_to_rhythm(vector<int> *beat_idx, int idx, float threshold = 0.02) 
   }
   mean_delta /= (float)(beat_idx->size() - 1.0);
 
+  *beat_idx_delta = round(mean_delta);
+
   float delta = idx - beat_idx->back();
 
   float err = (delta - mean_delta) / mean_delta;
 
   if (delta > mean_delta*0.25) {
-    float IPS = 44100 * 2.0;
     int   multiple;
     err = fabs(err);
     multiple = (int)round(err);
     err = fabs(err - multiple);
-
+/*
+   float IPS = 44100 * 2.0;
     printf ("%4lu, %7.4f, %6.4f, %6.4f, %d, %+5.4f %5.4f", 
         beat_idx->size(), 
         idx / IPS, 
@@ -768,16 +771,13 @@ bool add_beat_to_rhythm(vector<int> *beat_idx, int idx, float threshold = 0.02) 
         multiple,
         (delta - mean_delta) / mean_delta,
         err);
+        */
 
     if (err < threshold) {
       beat_idx->push_back(idx - multiple*mean_delta);
-      printf (" +++ \n");
       return (true);
     }
   }
-
-  printf ("\n");
-
 
   return (false);
 }
@@ -796,11 +796,16 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
   bool      is_beat = false;
   sceneT    *current_scene;
   int       scene_start_frame = 0;
+  int       last_beat_idx = 0;
+  int       beat_idx_delta=RAND_MAX;
 
   source = openSource(mov_name);
 
   music = read_ogg(ogg_name);
-  stream = init_portaudio(2, 44100, music);
+
+  //if (try_real_time) {
+    stream = init_portaudio(2, 44100, music);
+  //}
 
   int width, height;
 
@@ -824,16 +829,15 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
   current_scene = &source->scenes->at(0);
   scene_start_frame = 0;
 
-  for (master_idx = 0; master_idx < music->samples; master_idx+=10) {
+  for (master_idx = 0; master_idx < music->samples; master_idx++) {
     int idx;
     
-
-
-    if (!try_real_time) {
-      idx = master_idx;
-    } else {
+    if (try_real_time) {
       idx = music->idx;
       master_idx = 0;
+    } else {
+      idx = master_idx;
+      music->idx = idx;
     }
 
     sec = idx / (2.0 * 44100.0);
@@ -846,9 +850,15 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
       is_beat = false;
 
       if (audio_peaks > 1.35* p_audio_peaks) {
-        is_beat = add_beat_to_rhythm(&beat_idx, idx) ;
+        is_beat = add_beat_to_rhythm(&beat_idx, idx, &beat_idx_delta) ;
+        if (is_beat) last_beat_idx = idx;
       }
       p_audio_peaks = audio_peaks;
+
+      if (idx - last_beat_idx > beat_idx_delta) {
+        is_beat = true;
+        last_beat_idx = idx;
+      }
 
       if (is_beat) {
         int n_scenes = source->scenes->size();
@@ -859,8 +869,12 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
       Mat footage;
 
       if (derez) {
-        int frame_num = current_scene->start_frame_num + (frame - scene_start_frame);
-        source->derez_cap->set(CAP_PROP_POS_FRAMES, frame_num);
+        current_scene->current_frame_num++;
+        if (current_scene->current_frame_num >= current_scene->start_frame_num + current_scene->duration-5) {
+          current_scene->current_frame_num = current_scene->start_frame_num + current_scene->duration-5;
+          printf ("****** REWIND *******\n");
+        }
+        source->derez_cap->set(CAP_PROP_POS_FRAMES, current_scene->current_frame_num);
         source->derez_cap->read(footage); 
       } else {
         source->raw_cap->set(CAP_PROP_POS_FRAMES, frame);
@@ -885,7 +899,6 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
 
       showFrame(screen);
 
-/*
       printf ("%8.4fs ", sec);
       printf ("%6.2ffps ", 1.0 / (sec - p_sec));
       printf ("%8d ", music->idx);
@@ -894,9 +907,8 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
       bars((audio_mean-0.2) * 2.0);
       printf (" %6.4f ", audio_peaks);
       bars(audio_peaks * 10.0);
-      printf("%c ", beat ? '+' : ' ');
+      printf("%s ", is_beat ? "+++" : "   ");
       printf ("\n");
-*/
 
       p_sec = sec;
       p_frame = frame;
@@ -913,7 +925,7 @@ int main( int argc, char** argv )
 
   ft2->loadFontData( "futura1.ttf", 0 );
 
-  play("diamondbay.clips.mov", "05 sense_5days later.ogg", true);
+  play("diamondbay.clips.mov", "05 sense_5days later.ogg", false);
 
   return 0;
 }

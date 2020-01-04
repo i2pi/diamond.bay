@@ -208,7 +208,7 @@ PaStream *init_portaudio (int channels, int rate, void *data)
 			2, // stereo out
 			paInt16, 
 			44100,
-			256,	// frames per buffer
+			8192,	// frames per buffer
 			patestCallback,
 			data);
 #ifndef DIST
