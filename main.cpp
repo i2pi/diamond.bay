@@ -22,7 +22,7 @@ using namespace cv;
 using namespace std;
 using json = nlohmann::json;
 
-cv::Ptr<cv::freetype::FreeType2> ft2 = cv::freetype::createFreeType2();
+cv::Ptr<cv::freetype::FreeType2> ft2;
 VideoWriter   output_video;
 
 void showFrame(Mat frame, const char *title, float pct, Mat mask) {
@@ -61,6 +61,9 @@ VideoWriter startOutput(sourceT *s, int width=-1, int height=-1) {
     width = s->width;
     height = s->height;
   }
+
+  width = 800;
+  height = 800;
 
   VideoWriter video(outfile,codec, s->fps, Size(width,height));
 
@@ -321,7 +324,7 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
 
 int main( int argc, char** argv )
 {
-
+  ft2 = cv::freetype::createFreeType2();
   ft2->loadFontData( "futura1.ttf", 0 );
 
   play("diamondbay.clips.mov", "05 sense_5days later.ogg", false, true);

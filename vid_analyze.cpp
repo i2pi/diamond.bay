@@ -20,6 +20,134 @@ using namespace cv;
 using namespace std;
 using json = nlohmann::json;
 
+float colorDistance(Vec3b a, Vec3b b) {
+  return (fabs((a[0] - b[0]) / (float)(a[0] + b[0])) +
+          fabs((a[1] - b[1]) / (float)(a[1] + b[1])) +
+          fabs((a[2] - b[2]) / (float)(a[2] + b[2])));
+}
+
+float paletteDistance(sceneT *a, sceneT *b) {
+  int n = a->palette.rows;
+  vector<float> row_min = vector<float>(n, 1e10);
+  vector<float> col_min = vector<float>(n, 1e10);
+/*
+  int W = 800;
+  float w = (W-1) / (float) (n+1);
+  Mat screen = Mat(W,W,CV_8UC3);
+
+  for (int i=0; i<n; i++) {
+    Vec3b ac=a->palette.at<Vec3b>(i);
+    Vec3b bc=b->palette.at<Vec3b>(i);
+
+    rectangle(screen, Point((i+1)*w, 0), Point((i+2)*w, w), 
+        Scalar(ac[2], ac[1], ac[0]), FILLED);
+
+    rectangle(screen, Point(0, (i+1)*w), Point(w, (i+2)*w),
+        Scalar(bc[2], bc[1], bc[0]), FILLED);
+  }
+*/
+
+  for (int i=0; i<n; i++) {
+    for (int j=0; j<n; j++) {
+      Vec3b ac=a->palette.at<Vec3b>(i);
+      Vec3b bc=b->palette.at<Vec3b>(j);
+      float d = colorDistance(ac, bc);
+
+      d *= (a->palette_weight->at(i) + b->palette_weight->at(j));
+
+      if (d < row_min[i]) row_min[i] = d;
+      if (d < col_min[j]) col_min[j] = d;
+
+/*     vector<Point> triangle;
+      triangle.push_back(Point((i+1)*w, (j+1)*w));
+      triangle.push_back(Point((i+2)*w, (j+1)*w));
+      triangle.push_back(Point((i+1)*w, (j+2)*w));
+
+      fillConvexPoly(screen, triangle, Scalar(ac[2], ac[1], ac[0]));
+
+      triangle.clear();
+      triangle.push_back(Point((i+2)*w, (j+1)*w));
+      triangle.push_back(Point((i+2)*w, (j+2)*w));
+      triangle.push_back(Point((i+1)*w, (j+2)*w));
+
+      fillConvexPoly(screen, triangle, Scalar(bc[2], bc[1], bc[0]));
+
+      rectangle(screen, Point((i+1)*w, (j+1)*w), Point((i+2)*w, (j+2)*w),
+          Scalar(255,255,255));
+
+      char str[1024];
+      snprintf(str, 1024, "%6.4f", d);
+
+      ft2->putText(screen, str, Point((i+1.1)*w, (j+1.35)*w), 20, Scalar(255,255,255), -1, LINE_AA, false);
+*/
+    }
+  }
+//  showFrame(screen);
+
+  float distance = 0;
+  for (int i=0; i<n; i++) {
+    distance += (row_min[i] + col_min[i]) * 0.5;
+  }
+
+  return (distance);
+}
+
+void drawPaletteBox(sceneT *s, Mat screen, int x, int y, int sz, bool horizontal) {
+  int n = s->palette_weight->size();
+  float h = sz / (float)n;
+
+  rectangle(screen, Point(x,y), Point(x+sz, y+sz), Scalar(255,255,255));
+  for (int i=0; i<n; i++) {
+    Vec3b c=s->palette.at<Vec3b>(i);
+    if (horizontal) {
+      rectangle(screen, Point(x,y+i*h), Point(x+sz, y+(i+1)*h), Scalar(c[2],c[1],c[0]), FILLED);
+    } else {
+      rectangle(screen, Point(x+i*h,y), Point(x+(i+1)*h, y+sz), Scalar(c[2],c[1],c[0]), FILLED);
+    }
+  } 
+}
+
+void drawPaletteDistanceMatrix(Mat screen, sourceT *s) {
+  int n = s->scenes->size();
+
+
+  int W = screen.cols;
+  int H = screen.rows;
+  float w = W / (float)(n+1);
+  float h = H / (float)(n+1);
+  float sz = (w < h) ? w : h;
+
+  for (int i=0; i<n; i++) {
+    sceneT *scene = &s->scenes->at(i);
+
+    drawPaletteBox(scene, screen, w*(i+1), 0, sz, true);
+    drawPaletteBox(scene, screen, 0, h*(i+1), sz, false);
+  }
+
+  for (int i=0; i<n; i++) 
+  for (int j=0; j<n; j++) {
+    float d = s->scene_palette_distance->at<float>(i,j);
+    rectangle(screen, Point(w*(i+1), h*(j+1)), Point(w*(i+2), h*(j+2)), Scalar(64,64,64));
+    rectangle(screen, Point(1+w*(i+1), 1+h*(j+1)), Point(w*(i+2)-1, h*(j+2)-1), Scalar(255,255,255)*(1.0-d), FILLED);
+  }
+
+}
+
+void calcSceneDistances (sourceT *s) {
+  int n = s->scenes->size();
+
+  s->scene_palette_distance = new Mat(n, n, CV_32F, Scalar(0.0));
+
+  for (int i=0; i<n; i++) {
+    for (int j=0; j<i; j++) {
+     float d = paletteDistance(&s->scenes->at(i), &s->scenes->at(j));
+     s->scene_palette_distance->at<float>(i, j) = d;
+     s->scene_palette_distance->at<float>(j, i) = d;
+    }
+    s->scene_palette_distance->at<float>(i, i) = 0;
+  }
+}
+
 class RunningStat {
     // From John Cook
     public:
@@ -102,11 +230,11 @@ void analyzeScene(sourceT *s, int idx) {
   scene->palette.convertTo(scene->palette, CV_8UC3);
   cvtColor(scene->palette, scene->palette, COLOR_Lab2BGR);
 
-  scene->palette_weight = vector<float>(K);
+  scene->palette_weight = new vector<float>(K);
   for (i=0; i<labels.rows; i++) {
-      scene->palette_weight[labels.at<int>(i)] ++;
+      scene->palette_weight->at(labels.at<int>(i)) ++;
   } 
-  for (i=0; i<K; i++) scene->palette_weight[i] /= (float) labels.rows;
+  for (i=0; i<K; i++) scene->palette_weight->at(i) /= (float) labels.rows;
 
   Mat frame = scene->key_frame;
 
@@ -207,6 +335,12 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
   if (((*s->cache)["scenes"]).is_array()) {
     cout << "Found scene cache\n";
     loadScenesFromCache(s);
+    calcSceneDistances(s);
+    while(1) {
+      Mat screen = Mat(800, 800, CV_8UC3);
+      drawPaletteDistanceMatrix(screen, s);
+      showFrame(screen);
+    }
     return;
   }
 

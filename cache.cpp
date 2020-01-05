@@ -73,7 +73,7 @@ void cacheScenes(sourceT *s) {
     }
 
     json pal_w = json::array();
-    for (int k=0; k<scene->palette_weight.size(); k++) {
+    for (int k=0; k<scene->palette_weight->size(); k++) {
       pal_w.push_back(scene->palette_weight[k]);
     }
 
@@ -114,14 +114,15 @@ void loadScenesFromCache(sourceT *s) {
     for (int k=0; k<pal.size(); k++) {
       unsigned long c = strtol(pal[k].get<std::string>().c_str(), NULL, 0);
       scene.palette.at<Vec3b>(k)[0] = c & 0x0000FF;
-      scene.palette.at<Vec3b>(k)[1] = c & 0x00FF00;
-      scene.palette.at<Vec3b>(k)[2] = c & 0xFF0000;
+      scene.palette.at<Vec3b>(k)[1] = (c & 0x00FF00) >> 8;
+      scene.palette.at<Vec3b>(k)[2] = (c & 0xFF0000) >> 16;
     }
 
     json pal_w = j[i]["palette_weight"];
+    scene.palette_weight = new vector<float>();
     for (int k=0; k<pal_w.size(); k++) {
       float w = pal_w[k];
-      scene.palette_weight.push_back(w);
+      scene.palette_weight->push_back(w);
     }
 
     scene.motion = new vector<Point2f>();
@@ -130,7 +131,7 @@ void loadScenesFromCache(sourceT *s) {
       scene.motion->push_back(Point(mot[k]["x"], mot[k]["y"]));
     }
 
-    s->scenes->push_back(scene);
+    if (pal.size() > 0) s->scenes->push_back(scene);
   }
-  printf("Found %ld scenes in cache\n", i);
+  printf("Found %ld scenes in cache\n", s->scenes->size());
 }

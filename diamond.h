@@ -30,7 +30,7 @@ typedef struct {
   Mat             key_frame;
   vector<Point2f> *motion;
   Mat             palette;
-  vector<float>   palette_weight;
+  vector<float>   *palette_weight;
 } sceneT;
 
 typedef struct {
@@ -48,6 +48,8 @@ typedef struct {
 
   VideoCapture  *derez_cap;
 } sourceT;
+
+extern cv::Ptr<cv::freetype::FreeType2> ft2;
 
 void showFrame(Mat frame, const char *title="", float pct=-1.0, Mat mask = Mat());
 
