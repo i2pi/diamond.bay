@@ -100,9 +100,9 @@ void drawPaletteBox(sceneT *s, Mat screen, int x, int y, int sz, bool horizontal
   for (int i=0; i<n; i++) {
     Vec3b c=s->palette.at<Vec3b>(i);
     if (horizontal) {
-      rectangle(screen, Point(x,y+i*h), Point(x+sz, y+(i+1)*h), Scalar(c[2],c[1],c[0]), FILLED);
+      rectangle(screen, Point(x,y+i*h), Point(x+sz, y+(i+1)*h), Scalar(c[0],c[1],c[2]), FILLED);
     } else {
-      rectangle(screen, Point(x+i*h,y), Point(x+(i+1)*h, y+sz), Scalar(c[2],c[1],c[0]), FILLED);
+      rectangle(screen, Point(x+i*h,y), Point(x+(i+1)*h, y+sz), Scalar(c[0],c[1],c[2]), FILLED);
     }
   } 
 }
@@ -259,10 +259,12 @@ void analyzeScene(sourceT *s, int idx) {
 
 
   scene = &s->scenes->at(idx);
-  s->derez_cap->set(CAP_PROP_POS_FRAMES, scene->start_frame_num + (scene->duration >> 1)); 
+//  s->derez_cap->set(CAP_PROP_POS_FRAMES, scene->start_frame_num + (scene->duration >> 1)); 
+  s->derez_cap->set(CAP_PROP_POS_FRAMES, scene->start_frame_num + 5);
   s->derez_cap->read(scene->key_frame);
 
-  int K = 6;
+
+  int K = 9;
 
   Mat ocv; 
   scene->key_frame.copyTo(ocv);
@@ -292,6 +294,7 @@ void analyzeScene(sourceT *s, int idx) {
 
   Mat frame = scene->key_frame;
 
+
   Mat gray, prevGray;
   s->derez_cap->set(CAP_PROP_POS_FRAMES, scene->start_frame_num);
   s->derez_cap->read(prevGray);
@@ -306,14 +309,16 @@ void analyzeScene(sourceT *s, int idx) {
   }
 
 
-  for (i=1; i < scene->duration-3; i++) {
+  for (i=1; i < scene->duration-5; i++) {
     TermCriteria termcrit(TermCriteria::COUNT|TermCriteria::EPS,20,0.03);
     vector<uchar> status;
     vector<float> err;
     vector<Point2f> outPoints;
-    Mat img;
 
     s->derez_cap->read(img); 
+
+    showFrame(img);
+
     cvtColor(img, img, COLOR_BGR2GRAY);
     cvtColor(img, img, COLOR_GRAY2BGR);
     cvtColor(img, gray, COLOR_BGR2GRAY);
@@ -321,6 +326,7 @@ void analyzeScene(sourceT *s, int idx) {
         status, err, winSize,
         3, termcrit, 0, 0.001); 
     gray.copyTo(prevGray);
+
 
     for (int j=0; j<s->motion_sample_points->size(); j++) {
       if (status[j]) { 
@@ -334,12 +340,16 @@ void analyzeScene(sourceT *s, int idx) {
         drawMarker(img, (*s->motion_sample_points)[j], Scalar(0,255,0));
       }
     }
-//    if (i % 20 == 0) showFrame(img, "motion", -1);
+  //  if (i % 20 == 0) showFrame(img, "motion", -1);
   }
+
+
 
   gray.copyTo(img);
   img *= 0.25;
   cvtColor(img, img, COLOR_GRAY2BGR);
+
+
 
   for (i=0; i<K; i++) {
     Point A, B; 
@@ -370,10 +380,8 @@ void analyzeScene(sourceT *s, int idx) {
           (*s->motion_sample_points)[i] + scene->motion->at(i) * 15, Scalar(255,255,255), 2, LINE_AA, 0, 0.3);
     }
   }
-/*
-  for (i=0; i<80; i++) 
-      showFrame(img, "", -1);
-*/
+
+  for (i=0; i<80; i++) showFrame(img, "", -1);
 }
 
 void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0) {
@@ -390,6 +398,7 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
     cout << "Found scene cache\n";
     loadScenesFromCache(s);
     calcSceneDistances(s);
+
     /*
     while(1) {
       Mat screen = Mat(800, 800, CV_8UC3);
@@ -473,6 +482,7 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
   }
   p_scene.duration = i - p_scene.start_frame_num;
   s->scenes->push_back(p_scene);
+  analyzeScene(s, scene_count);
 
   cacheScenes(s);
   calcSceneDistances(s);

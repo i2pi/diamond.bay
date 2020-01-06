@@ -73,8 +73,8 @@ void cacheScenes(sourceT *s) {
     }
 
     json pal_w = json::array();
-    for (int k=0; k<scene->palette_weight->size(); k++) {
-      pal_w.push_back(scene->palette_weight[k]);
+    for (int k=0; k<scene->palette.rows; k++) {
+      pal_w.push_back(scene->palette_weight->at(k));
     }
 
     json mot = json::array();

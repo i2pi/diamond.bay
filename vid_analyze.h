@@ -27,4 +27,7 @@ void analyzeScene(sourceT *s, int idx);
 void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0);
 void createDerez(sourceT *s, const char *derez_filename, float shrink=0.15);
 
+void drawPaletteBox(sceneT *s, Mat screen, int x, int y, int sz, bool horizontal);
+void drawMotionBox(sceneT *s, Mat screen, int x, int y, int sz, bool horizontal);
+
 #endif 

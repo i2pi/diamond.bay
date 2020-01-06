@@ -211,6 +211,7 @@ int markovStep(Mat *distance_matrix, int i, float scale = 1.0, float p = 1.0) {
 
   if (n > 1024) exit (-1);
 
+
   ssd = 0;
   for (int j=0; j<n; j++) {
     sd[j].val = pow(d[j], p) * scale;
@@ -224,7 +225,7 @@ int markovStep(Mat *distance_matrix, int i, float scale = 1.0, float p = 1.0) {
   r = random() / (float)RAND_MAX;
   ssd = 0;
   int j = 0;
-  while ((ssd < r) && (j < n)) ssd += fabs(sd[j++].val);
+  while ((ssd < r) && (j < n)) ssd += fabs(sd[sd[j++].idx].val);
 
   return (sd[j-1].idx); 
 }
@@ -255,9 +256,7 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
 
   music = read_ogg(ogg_name);
 
-  //if (try_real_time) {
-    stream = init_portaudio(2, 44100, music);
-  //}
+  stream = init_portaudio(2, 44100, music);
 
   int width, height;
 
@@ -268,8 +267,6 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
     width = source->width;
     height = source->height;
   }
-
-
 
   Mat screen = Mat(height, width, CV_8UC3);
   Mat mask = Mat(height, width, CV_8UC3);
@@ -301,7 +298,8 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
     if (frame != p_frame) {
       analyse_audio_frame(anal, music, idx, &audio_mean, &audio_peaks) ;
 
-      next_scene_num = markovStep(source->scene_motion_distance, current_scene_num, 1.0, 4.0);
+      //next_scene_num = markovStep(source->scene_motion_distance, current_scene_num, 1.0, 4.0);
+      next_scene_num = markovStep(source->scene_palette_distance, current_scene_num, -1.0, 40.0);
 
       is_beat = false;
 
@@ -330,7 +328,7 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
         current_scene->current_frame_num = current_scene->start_frame_num;
         printf ("****** REWIND *******\n");
       }
- 
+
       if (derez) {
          source->derez_cap->set(CAP_PROP_POS_FRAMES, current_scene->current_frame_num);
         source->derez_cap->read(footage); 
@@ -341,9 +339,8 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
 
       footage.copyTo(screen);
 
-
       mask *= 0;
-      title(mask, source);
+//      title(mask, source);
 
 
       multiply(screen, 0.5 + anal/512.0, screen);
@@ -351,6 +348,9 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
       multiply(screen, mask/256.0, screen);
       blur(screen, screen, Size(2,2));
       screen += mask * 0.5 + footage*0.8;
+
+      drawPaletteBox(current_scene, screen, 10,10, 50, true);
+      drawPaletteBox(&source->scenes->at(next_scene_num), screen, 10,80, 50, true);
 
 
       showFrame(screen);
