@@ -45,6 +45,7 @@ typedef struct {
   vector<Point2f> *motion_sample_points;
   vector<sceneT> *scenes;
   Mat             *scene_palette_distance;
+  Mat             *scene_motion_distance;
 
   VideoCapture  *derez_cap;
 } sourceT;

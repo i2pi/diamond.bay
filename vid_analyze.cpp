@@ -109,8 +109,6 @@ void drawPaletteBox(sceneT *s, Mat screen, int x, int y, int sz, bool horizontal
 
 void drawPaletteDistanceMatrix(Mat screen, sourceT *s) {
   int n = s->scenes->size();
-
-
   int W = screen.cols;
   int H = screen.rows;
   float w = W / (float)(n+1);
@@ -128,23 +126,79 @@ void drawPaletteDistanceMatrix(Mat screen, sourceT *s) {
   for (int j=0; j<n; j++) {
     float d = s->scene_palette_distance->at<float>(i,j);
     rectangle(screen, Point(w*(i+1), h*(j+1)), Point(w*(i+2), h*(j+2)), Scalar(64,64,64));
-    rectangle(screen, Point(1+w*(i+1), 1+h*(j+1)), Point(w*(i+2)-1, h*(j+2)-1), Scalar(255,255,255)*(1.0-d), FILLED);
+    rectangle(screen, Point(2+w*(i+1), 1+h*(j+1)), Point(w*(i+2)-1, h*(j+2)-1), 
+        Scalar(255,255,255)*(1.0-d), FILLED);
+  }
+}
+
+void drawMotionDistanceMatrix(Mat screen, sourceT *s) {
+  int n = s->scenes->size();
+  int W = screen.cols;
+  int H = screen.rows;
+  float w = W / (float)(n+1);
+  float h = H / (float)(n+1);
+  float sz = (w < h) ? w : h;
+
+  for (int i=0; i<n; i++) {
+    sceneT *scene = &s->scenes->at(i);
+
+    drawPaletteBox(scene, screen, w*(i+1), 0, sz, true);
+    drawPaletteBox(scene, screen, 0, h*(i+1), sz, false);
   }
 
+  for (int i=0; i<n; i++) 
+    for (int j=0; j<n; j++) {
+      float d = s->scene_motion_distance->at<float>(i,j);
+      rectangle(screen, Point(w*(i+1), h*(j+1)), Point(w*(i+2), h*(j+2)), Scalar(64,64,64));
+      rectangle(screen, Point(2+w*(i+1), 1+h*(j+1)), Point(w*(i+2)-1, h*(j+2)-1), 
+          Scalar(255,255,255)*(1.0-d), FILLED);
+    }
+}
+
+
+float motionDistance(sceneT *a, sceneT *b) {
+  int n = a->motion->size();
+  float d = 0;
+
+  for (int i=0; i<n; i++) {
+    float max, may, mbx, mby;
+    float dot, A, B;
+
+    max = a->motion->at(i).x;
+    may = a->motion->at(i).y;
+    mbx = b->motion->at(i).x;
+    mby = b->motion->at(i).y;
+
+    dot = max * mbx + may * mby;
+    A = sqrt(max*max + may*may);
+    B = sqrt(mbx*mbx + mby*mby);
+
+    if (A > 0 && B > 0) d += fabs(dot) / (A * B); 
+  }
+
+  return (d / (float)n);
 }
 
 void calcSceneDistances (sourceT *s) {
   int n = s->scenes->size();
+  float max_motion = 0;
 
   s->scene_palette_distance = new Mat(n, n, CV_32F, Scalar(0.0));
+  s->scene_motion_distance = new Mat(n, n, CV_32F, Scalar(0.0));
 
   for (int i=0; i<n; i++) {
     for (int j=0; j<i; j++) {
      float d = paletteDistance(&s->scenes->at(i), &s->scenes->at(j));
      s->scene_palette_distance->at<float>(i, j) = d;
      s->scene_palette_distance->at<float>(j, i) = d;
+
+     d = motionDistance(&s->scenes->at(i), &s->scenes->at(j));
+     if (d > max_motion) max_motion = d;
+     s->scene_motion_distance->at<float>(i, j) = d;
+     s->scene_motion_distance->at<float>(j, i) = d;
     }
     s->scene_palette_distance->at<float>(i, i) = 0;
+    s->scene_motion_distance->at<float>(i, i) = 0;
   }
 }
 
@@ -338,7 +392,8 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
     calcSceneDistances(s);
     while(1) {
       Mat screen = Mat(800, 800, CV_8UC3);
-      drawPaletteDistanceMatrix(screen, s);
+//      drawPaletteDistanceMatrix(screen, s);
+      drawMotionDistanceMatrix(screen, s);
       showFrame(screen);
     }
     return;

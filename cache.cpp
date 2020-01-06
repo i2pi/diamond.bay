@@ -128,7 +128,10 @@ void loadScenesFromCache(sourceT *s) {
     scene.motion = new vector<Point2f>();
     json mot = j[i]["motion"];
     for (int k=0; k<mot.size(); k++) {
-      scene.motion->push_back(Point(mot[k]["x"], mot[k]["y"]));
+      float x, y;
+      x = mot[k]["x"];
+      y = mot[k]["y"];
+      scene.motion->push_back(Point2f(x, y));
     }
 
     if (pal.size() > 0) s->scenes->push_back(scene);
