@@ -184,7 +184,51 @@ void title(Mat screen, sourceT *s) {
   x -= kernText(NULL, "BAY", kern, letterHeight)/2.0;
   y = screen.rows - letterHeight * 1.3;
   kernText(&screen, "BAY", kern, letterHeight, Point(x,y));
+}  
+
+
+typedef struct {
+  float val;
+  int idx;
+} orderT;
+
+int orderCmp(const void *a, const void *b) {
+  orderT *oa, *ob;
+  oa = (orderT *) a;
+  ob = (orderT *) b;
+
+  if (oa->val < ob->val) return (-1);
+  if (oa->val > ob->val) return (1);
+  return(0);
 }
+
+int markovStep(Mat *distance_matrix, int i, float scale = 1.0, float p = 1.0) {
+  int n = distance_matrix->rows;
+  const float *d = distance_matrix->ptr<float>(i);
+  orderT sd[1024];
+  float ssd;
+  float r;
+
+  if (n > 1024) exit (-1);
+
+  ssd = 0;
+  for (int j=0; j<n; j++) {
+    sd[j].val = pow(d[j], p) * scale;
+    sd[j].idx = j;
+    ssd += sd[j].val;
+  } 
+  for (int j=0; j<n; j++) sd[j].val /= fabs(ssd);
+
+  qsort(&sd, n, sizeof(orderT), orderCmp);
+  
+  r = random() / (float)RAND_MAX;
+  ssd = 0;
+  int j = 0;
+  while ((ssd < r) && (j < n)) ssd += fabs(sd[j++].val);
+
+  return (sd[j-1].idx); 
+}
+
 
 void play(const char *mov_name, const char *ogg_name, bool try_real_time = true, bool derez=true)  {
   PaStream  *stream;
@@ -198,10 +242,14 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
   float     p_audio_peaks = 0;
   vector<int> beat_idx;
   bool      is_beat = false;
+  int       current_scene_num;
+  int       next_scene_num;
   sceneT    *current_scene;
   int       scene_start_frame = 0;
   int       last_beat_idx = 0;
   int       beat_idx_delta=RAND_MAX;
+
+  srandom(time(NULL));
 
   source = openSource(mov_name);
 
@@ -222,6 +270,7 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
   }
 
 
+
   Mat screen = Mat(height, width, CV_8UC3);
   Mat mask = Mat(height, width, CV_8UC3);
   Mat anal = Mat(height, width, CV_8UC3);
@@ -230,8 +279,10 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
   p_idx = -1;
   p_frame = -1;
 
-  current_scene = &source->scenes->at(0);
+  current_scene_num = 0;
+  current_scene = &source->scenes->at(current_scene_num);
   scene_start_frame = 0;
+
 
   for (master_idx = 0; master_idx < music->samples; master_idx++) {
     int idx;
@@ -250,6 +301,8 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
     if (frame != p_frame) {
       analyse_audio_frame(anal, music, idx, &audio_mean, &audio_peaks) ;
 
+      next_scene_num = markovStep(source->scene_motion_distance, current_scene_num, 1.0, 4.0);
+
       is_beat = false;
 
       if (audio_peaks > 1.35* p_audio_peaks) {
@@ -264,8 +317,8 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
       }
 
       if (is_beat) {
-        int n_scenes = source->scenes->size();
-        current_scene = &source->scenes->at(random() * n_scenes / RAND_MAX);
+        current_scene = &source->scenes->at(next_scene_num);
+        current_scene_num = next_scene_num;
         scene_start_frame = frame;
       }
 
@@ -274,6 +327,7 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
       current_scene->current_frame_num++;
       if (current_scene->current_frame_num >= current_scene->start_frame_num + current_scene->duration-5) {
         current_scene->current_frame_num = current_scene->start_frame_num + current_scene->duration-5;
+        current_scene->current_frame_num = current_scene->start_frame_num;
         printf ("****** REWIND *******\n");
       }
  
@@ -309,7 +363,8 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
       bars((audio_mean-0.2) * 2.0);
       printf (" %6.4f ", audio_peaks);
       bars(audio_peaks * 10.0);
-      printf("%s ", is_beat ? "+++" : "   ");
+      printf("%s ", is_beat ? " +++ " : "     ");
+      printf ("%03d ", current_scene_num);
       printf ("\n");
 
       p_sec = sec;

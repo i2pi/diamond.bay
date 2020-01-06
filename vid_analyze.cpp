@@ -390,12 +390,14 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
     cout << "Found scene cache\n";
     loadScenesFromCache(s);
     calcSceneDistances(s);
+    /*
     while(1) {
       Mat screen = Mat(800, 800, CV_8UC3);
 //      drawPaletteDistanceMatrix(screen, s);
       drawMotionDistanceMatrix(screen, s);
       showFrame(screen);
     }
+    */
     return;
   }
 
@@ -473,6 +475,7 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
   s->scenes->push_back(p_scene);
 
   cacheScenes(s);
+  calcSceneDistances(s);
 
   printf ("Done detecting scenes\n");
 
