@@ -184,7 +184,7 @@ void title(Mat screen, sourceT *s) {
 }  
 
 
-int markovStep(Mat *distance_matrix, int i, float scale = 1.0, float p = 1.0) {
+int markovStep(Mat *distance_matrix, int i, bool isDistance=true, float p = 1.0) {
   int n = distance_matrix->rows;
   const float *d = distance_matrix->ptr<float>(i);
   float sd[1024];
@@ -193,7 +193,11 @@ int markovStep(Mat *distance_matrix, int i, float scale = 1.0, float p = 1.0) {
 
   if (n > 1024) exit (-1);
 
-  for (int j=0; j<n; j++) sd[j] = pow(1.0 - d[j], p);
+  if (isDistance) {
+    for (int j=0; j<n; j++) sd[j] = pow(1.0 - d[j], p);
+  } else {
+    for (int j=0; j<n; j++) sd[j] = pow(d[j], p);
+  }
   ssd = 0;
   for (int j=0; j<n; j++) if (sd[j] > ssd) ssd = sd[j];
   for (int j=0; j<n; j++) sd[j] /= ssd;
@@ -224,6 +228,7 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
   float     audio_mean, audio_peaks;
   float     p_audio_peaks = 0;
   vector<int> beat_idx;
+  int       beat_num = 0;
   bool      is_beat = false;
   int       current_scene_num;
   int       next_scene_num;
@@ -262,17 +267,6 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
   current_scene_num = 5;
   current_scene = &source->scenes->at(current_scene_num);
   scene_start_frame = 0;
-/*
-  while (1) {
-    next_scene_num = markovStep(
-      source->scene_palette_distance, 
-      current_scene_num, -1.0, 50.0);
-    printf ("%d\n", next_scene_num);
-  }
-
-  exit(-1);
-  */
-
 
   for (master_idx = 0; master_idx < music->samples; master_idx++) {
     int idx;
@@ -292,9 +286,15 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
 
       analyse_audio_frame(anal, music, idx, &audio_mean, &audio_peaks) ;
 
-      next_scene_num = markovStep(
-          source->scene_palette_distance, 
-          current_scene_num, -1.0, 80.0);
+      if (beat_num % 2) {
+       next_scene_num = markovStep(
+          source->scene_motion_distance, 
+          current_scene_num, false, 200.0 * audio_mean);
+      } else {
+        next_scene_num = markovStep(
+            source->scene_palette_distance, 
+            current_scene_num, true, 200.0 * audio_mean);
+      }
 
       is_beat = false;
 
@@ -312,6 +312,7 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
       }
 
       if (is_beat) {
+        beat_num ++;
         current_scene = &source->scenes->at(next_scene_num);
         current_scene_num = next_scene_num;
         scene_start_frame = frame;
@@ -342,7 +343,7 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
 
       rectangle(mask, Point(10,10), Point(150,150), Scalar(255,255,255), FILLED);
 
-      screen += mask * 0.15;
+      screen += mask * 0.25;
 
       drawPaletteBox(current_scene, screen, 20,20, 50);
       drawPaletteBox(&source->scenes->at(next_scene_num), screen, 20,90, 50);
