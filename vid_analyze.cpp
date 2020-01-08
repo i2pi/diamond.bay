@@ -21,9 +21,9 @@ using namespace std;
 using json = nlohmann::json;
 
 float colorDistance(Vec3b a, Vec3b b) {
-  return (fabs((a[0] - b[0]) / (float)(a[0] + b[0])) +
-          fabs((a[1] - b[1]) / (float)(a[1] + b[1])) +
-          fabs((a[2] - b[2]) / (float)(a[2] + b[2])));
+  return (pow((a[0] - b[0]) / (float)(a[0] + b[0]), 2.0) +
+          pow((a[1] - b[1]) / (float)(a[1] + b[1]), 2.0) +
+          pow((a[2] - b[2]) / (float)(a[2] + b[2]), 2.0));
 }
 
 float paletteDistance(sceneT *a, sceneT *b) {
@@ -92,23 +92,54 @@ float paletteDistance(sceneT *a, sceneT *b) {
   return (distance);
 }
 
-void drawPaletteBox(sceneT *s, Mat screen, int x, int y, int sz, bool horizontal) {
+void drawPaletteBox(sceneT *s, Mat screen, int x, int y, int sz) {
   int n = s->palette_weight->size();
-  float h = sz / (float)n;
+  int sn = sqrt(n);
+  float h = sz / (float)sn;
 
-  rectangle(screen, Point(x,y), Point(x+sz, y+sz), Scalar(255,255,255));
-  for (int i=0; i<n; i++) {
-    Vec3b c=s->palette.at<Vec3b>(i);
-    if (horizontal) {
-      rectangle(screen, Point(x,y+i*h), Point(x+sz, y+(i+1)*h), Scalar(c[0],c[1],c[2]), FILLED);
-    } else {
-      rectangle(screen, Point(x+i*h,y), Point(x+(i+1)*h, y+sz), Scalar(c[0],c[1],c[2]), FILLED);
-    }
+  unsigned char c = 64;
+  rectangle(screen, Point(x-1,y-1), Point(x+sz+1, y+sz+1), Scalar(c,c,c));
+  int i, j, k;
+  k = 0;
+  for (i=0; i<sn; i++) 
+  for (j=0; j<sn; j++) {
+    Vec3b c=s->palette.at<Vec3b>(k++);
+    rectangle(screen, Point(x+i*h,y+j*h), Point(x+(i+1)*h, y+(j+1)*h), Scalar(c[0],c[1],c[2]), FILLED);
   } 
 }
 
+void drawMotionBox(sceneT *s, Mat screen, int X, int Y, int sz) {
+  int n = s->source->motion_sample_points->size();
+  float W = s->source->derez_cap->get(CAP_PROP_FRAME_WIDTH);
+  float H = s->source->derez_cap->get(CAP_PROP_FRAME_HEIGHT);
+
+  unsigned char c = 64;
+  rectangle(screen, Point(X-1,Y-1), Point(X+sz+1, Y+sz+1), Scalar(c,c,c));
+  for (int i=0; i<n; i++)  {
+    Point2f point = s->source->motion_sample_points->at(i);
+    float x, y;
+    x = X + sz*(point.x / W);
+    y = Y + sz*(point.y / H);
+      
+    Point2f vec= s->motion->at(i);
+    float vx, vy;
+    vx = vec.x / W;
+    vy = vec.y / H;
+
+    float scale = sz*50;
+
+    arrowedLine(screen, Point(x,y), Point(x+scale*vx, y+scale*vy), 
+        Scalar(255, 255, 255), 1, LINE_AA);
+  } 
+}
+
+
+
 void drawPaletteDistanceMatrix(Mat screen, sourceT *s) {
   int n = s->scenes->size();
+
+  n = 20;
+
   int W = screen.cols;
   int H = screen.rows;
   float w = W / (float)(n+1);
@@ -118,8 +149,8 @@ void drawPaletteDistanceMatrix(Mat screen, sourceT *s) {
   for (int i=0; i<n; i++) {
     sceneT *scene = &s->scenes->at(i);
 
-    drawPaletteBox(scene, screen, w*(i+1), 0, sz, true);
-    drawPaletteBox(scene, screen, 0, h*(i+1), sz, false);
+    drawPaletteBox(scene, screen, w*(i+1), 0, sz);
+    drawPaletteBox(scene, screen, 0, h*(i+1), sz);
   }
 
   for (int i=0; i<n; i++) 
@@ -127,12 +158,15 @@ void drawPaletteDistanceMatrix(Mat screen, sourceT *s) {
     float d = s->scene_palette_distance->at<float>(i,j);
     rectangle(screen, Point(w*(i+1), h*(j+1)), Point(w*(i+2), h*(j+2)), Scalar(64,64,64));
     rectangle(screen, Point(2+w*(i+1), 1+h*(j+1)), Point(w*(i+2)-1, h*(j+2)-1), 
-        Scalar(255,255,255)*(1.0-d), FILLED);
+        Scalar(255,255,255)*(d), FILLED);
   }
 }
 
 void drawMotionDistanceMatrix(Mat screen, sourceT *s) {
   int n = s->scenes->size();
+
+  n = 10;
+
   int W = screen.cols;
   int H = screen.rows;
   float w = W / (float)(n+1);
@@ -142,8 +176,8 @@ void drawMotionDistanceMatrix(Mat screen, sourceT *s) {
   for (int i=0; i<n; i++) {
     sceneT *scene = &s->scenes->at(i);
 
-    drawPaletteBox(scene, screen, w*(i+1), 0, sz, true);
-    drawPaletteBox(scene, screen, 0, h*(i+1), sz, false);
+    drawMotionBox(scene, screen, w*(i+1), 0, sz);
+    drawMotionBox(scene, screen, 0, h*(i+1), sz);
   }
 
   for (int i=0; i<n; i++) 
@@ -402,11 +436,11 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
     /*
     while(1) {
       Mat screen = Mat(800, 800, CV_8UC3);
-//      drawPaletteDistanceMatrix(screen, s);
-      drawMotionDistanceMatrix(screen, s);
+     drawPaletteDistanceMatrix(screen, s);
+      //drawMotionDistanceMatrix(screen, s);
       showFrame(screen);
     }
-    */
+*/
     return;
   }
 
@@ -454,6 +488,7 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
         scene.start_frame_num = i;
 
         p_scene.duration = i - p_scene.start_frame_num;
+        p_scene.source = s;
 
         s->scenes->push_back(p_scene);
         analyzeScene(s, scene_count);
@@ -481,6 +516,7 @@ void detectScenes(sourceT *s, float lookback_seconds=2.0, float z_threshold=4.0)
     frame.copyTo(p_frame);
   }
   p_scene.duration = i - p_scene.start_frame_num;
+  p_scene.source = s;
   s->scenes->push_back(p_scene);
   analyzeScene(s, scene_count);
 

@@ -106,6 +106,7 @@ void loadScenesFromCache(sourceT *s) {
     scene.start_frame_num = j[i]["start_frame_num"];
     scene.current_frame_num = scene.start_frame_num;
     scene.duration= j[i]["duration"];
+    scene.source = s;
     s->derez_cap->set(CAP_PROP_POS_FRAMES, scene.start_frame_num + (scene.duration >> 1)); 
     s->derez_cap->read(scene.key_frame);
 

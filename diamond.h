@@ -31,9 +31,10 @@ typedef struct {
   vector<Point2f> *motion;
   Mat             palette;
   vector<float>   *palette_weight;
+  struct sourceT         *source; 
 } sceneT;
 
-typedef struct {
+typedef struct sourceT {
   json          *cache;
 
   char          *filename;

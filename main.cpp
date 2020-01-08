@@ -62,9 +62,6 @@ VideoWriter startOutput(sourceT *s, int width=-1, int height=-1) {
     height = s->height;
   }
 
-  width = 800;
-  height = 800;
-
   VideoWriter video(outfile,codec, s->fps, Size(width,height));
 
   namedWindow("diamond bay", 1);
@@ -187,47 +184,32 @@ void title(Mat screen, sourceT *s) {
 }  
 
 
-typedef struct {
-  float val;
-  int idx;
-} orderT;
-
-int orderCmp(const void *a, const void *b) {
-  orderT *oa, *ob;
-  oa = (orderT *) a;
-  ob = (orderT *) b;
-
-  if (oa->val < ob->val) return (-1);
-  if (oa->val > ob->val) return (1);
-  return(0);
-}
-
 int markovStep(Mat *distance_matrix, int i, float scale = 1.0, float p = 1.0) {
   int n = distance_matrix->rows;
   const float *d = distance_matrix->ptr<float>(i);
-  orderT sd[1024];
+  float sd[1024];
   float ssd;
   float r;
 
   if (n > 1024) exit (-1);
 
-
+  for (int j=0; j<n; j++) sd[j] = pow(1.0 - d[j], p);
   ssd = 0;
-  for (int j=0; j<n; j++) {
-    sd[j].val = pow(d[j], p) * scale;
-    sd[j].idx = j;
-    ssd += sd[j].val;
-  } 
-  for (int j=0; j<n; j++) sd[j].val /= fabs(ssd);
-
-  qsort(&sd, n, sizeof(orderT), orderCmp);
+  for (int j=0; j<n; j++) if (sd[j] > ssd) ssd = sd[j];
+  for (int j=0; j<n; j++) sd[j] /= ssd;
+  ssd = 0;
+  for (int j=0; j<n; j++) ssd += sd[j];
+  for (int j=0; j<n; j++) sd[j] /= ssd;
   
   r = random() / (float)RAND_MAX;
   ssd = 0;
   int j = 0;
-  while ((ssd < r) && (j < n)) ssd += fabs(sd[sd[j++].idx].val);
+  while ((ssd < r) && (j < n))  {
+//    printf ("%3d, %6.4f <? %6.4f\n", j, ssd, r);
+    ssd += sd[j++];
+  }
 
-  return (sd[j-1].idx); 
+  return (j-1); 
 }
 
 
@@ -272,13 +254,24 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
   Mat mask = Mat(height, width, CV_8UC3);
   Mat anal = Mat(height, width, CV_8UC3);
 
+
   p_sec = 0;
   p_idx = -1;
   p_frame = -1;
 
-  current_scene_num = 0;
+  current_scene_num = 5;
   current_scene = &source->scenes->at(current_scene_num);
   scene_start_frame = 0;
+/*
+  while (1) {
+    next_scene_num = markovStep(
+      source->scene_palette_distance, 
+      current_scene_num, -1.0, 50.0);
+    printf ("%d\n", next_scene_num);
+  }
+
+  exit(-1);
+  */
 
 
   for (master_idx = 0; master_idx < music->samples; master_idx++) {
@@ -296,21 +289,25 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
     frame = sec * 29.97;
 
     if (frame != p_frame) {
+
       analyse_audio_frame(anal, music, idx, &audio_mean, &audio_peaks) ;
 
-      //next_scene_num = markovStep(source->scene_motion_distance, current_scene_num, 1.0, 4.0);
-      next_scene_num = markovStep(source->scene_palette_distance, current_scene_num, -1.0, 40.0);
+      next_scene_num = markovStep(
+          source->scene_palette_distance, 
+          current_scene_num, -1.0, 80.0);
 
       is_beat = false;
 
       if (audio_peaks > 1.35* p_audio_peaks) {
         is_beat = add_beat_to_rhythm(&beat_idx, idx, &beat_idx_delta) ;
+        printf ("PEAK BEAT\n");
         if (is_beat) last_beat_idx = idx;
       }
       p_audio_peaks = audio_peaks;
 
       if (idx - last_beat_idx > beat_idx_delta) {
         is_beat = true;
+        printf ("PSEUDO BEAT\n");
         last_beat_idx = idx;
       }
 
@@ -324,8 +321,7 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
 
       current_scene->current_frame_num++;
       if (current_scene->current_frame_num >= current_scene->start_frame_num + current_scene->duration-5) {
-        current_scene->current_frame_num = current_scene->start_frame_num + current_scene->duration-5;
-        current_scene->current_frame_num = current_scene->start_frame_num;
+        current_scene->current_frame_num = current_scene->start_frame_num + current_scene->duration*0.15;
         printf ("****** REWIND *******\n");
       }
 
@@ -343,15 +339,16 @@ void play(const char *mov_name, const char *ogg_name, bool try_real_time = true,
 //      title(mask, source);
 
 
-      multiply(screen, 0.5 + anal/512.0, screen);
 
-      multiply(screen, mask/256.0, screen);
-      blur(screen, screen, Size(2,2));
-      screen += mask * 0.5 + footage*0.8;
+      rectangle(mask, Point(10,10), Point(150,150), Scalar(255,255,255), FILLED);
 
-      drawPaletteBox(current_scene, screen, 10,10, 50, true);
-      drawPaletteBox(&source->scenes->at(next_scene_num), screen, 10,80, 50, true);
+      screen += mask * 0.15;
 
+      drawPaletteBox(current_scene, screen, 20,20, 50);
+      drawPaletteBox(&source->scenes->at(next_scene_num), screen, 20,90, 50);
+
+      drawMotionBox(current_scene, screen, 90,20, 50);
+      drawMotionBox(&source->scenes->at(next_scene_num), screen, 90,90, 50);
 
       showFrame(screen);
 
